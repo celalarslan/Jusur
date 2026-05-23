@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /calls/{callId} {
+      // Allowed to retrieve or list if the logged-in user is involved
+      allow read: if request.auth != null && (
+        resource.data.callerEmail == request.auth.token.email ||
+        resource.data.receiverEmail == request.auth.token.email
+      );
+      
+      // Allowed to initiate call if the user is the caller
+      allow create: if request.auth != null &&
+        request.resource.data.callerId == request.auth.uid &&
+        request.resource.data.callerEmail == request.auth.token.email;
+
+      // Allowed to update status (answering, missing, activating secretary, ending)
+      allow update: if request.auth != null && (
+        resource.data.callerEmail == request.auth.token.email ||
+        resource.data.receiverEmail == request.auth.token.email
+      );
+
+      // Only the caller can delete the call doc or clean up
+      allow delete: if request.auth != null &&
+        resource.data.callerEmail == request.auth.token.email;
+    }
+
+    match /voicemails/{voicemailId} {
+      // Receivers can read voicemails addressed to them; callers can read voicemail they left
+      allow read: if request.auth != null && (
+        resource.data.callerEmail == request.auth.token.email ||
+        resource.data.receiverEmail == request.auth.token.email
+      );
+
+      // Caller or receiver can write a voicemail document
+      allow create: if request.auth != null && (
+        request.resource.data.callerId == request.auth.uid ||
+        request.resource.data.callerEmail == request.auth.token.email
+      );
+
+      // Only the receiver can archive/delete voicemails
+      allow update, delete: if request.auth != null && (
+        resource.data.receiverEmail == request.auth.token.email
+      );
+    }
+  }
+}

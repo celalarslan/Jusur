@@ -1,0 +1,6 @@
+{
+  "name": "Jusur",
+  "description": "Real-time voice translation and smart AI calling assistant, bridging languages and connections synchronously.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
