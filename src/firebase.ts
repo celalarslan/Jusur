@@ -40,10 +40,12 @@ const GOOGLE_OAUTH_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID ||
   (firebaseConfig as { googleOAuthClientId?: string }).googleOAuthClientId ||
   "";
-const GOOGLE_OAUTH_SCOPES = [
+const GOOGLE_SIGN_IN_SCOPES = [
   "openid",
   "email",
-  "profile",
+  "profile"
+].join(" ");
+const GOOGLE_WORKSPACE_SCOPES = [
   "https://www.googleapis.com/auth/contacts.readonly",
   "https://www.googleapis.com/auth/meetings.space.created"
 ].join(" ");
@@ -163,7 +165,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     isSigningIn = true;
 
     await ensureGoogleIdentityServices();
-    const accessToken = await requestGoogleAccessToken();
+    const accessToken = await requestGoogleAccessToken(GOOGLE_SIGN_IN_SCOPES);
     const credential = GoogleAuthProvider.credential(null, accessToken);
     const result = await signInWithCredential(auth, credential);
     if (!result.user) {
@@ -177,6 +179,13 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
   } finally {
     isSigningIn = false;
   }
+};
+
+export const requestGoogleWorkspaceAccess = async (): Promise<string> => {
+  await ensureGoogleIdentityServices();
+  const accessToken = await requestGoogleAccessToken(GOOGLE_WORKSPACE_SCOPES);
+  cachedAccessToken = accessToken;
+  return accessToken;
 };
 
 function ensureGoogleIdentityServices(): Promise<void> {
@@ -203,7 +212,7 @@ function ensureGoogleIdentityServices(): Promise<void> {
   });
 }
 
-function requestGoogleAccessToken(): Promise<string> {
+function requestGoogleAccessToken(scope: string): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!GOOGLE_OAUTH_CLIENT_ID) {
       reject(new Error("Google OAuth client ID is missing. Set VITE_GOOGLE_OAUTH_CLIENT_ID after creating a Web OAuth client in Google Cloud."));
@@ -212,7 +221,7 @@ function requestGoogleAccessToken(): Promise<string> {
 
     const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
       client_id: GOOGLE_OAUTH_CLIENT_ID,
-      scope: GOOGLE_OAUTH_SCOPES,
+      scope,
       prompt: "consent",
       callback: (response) => {
         if (response.error) {

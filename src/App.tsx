@@ -27,6 +27,7 @@ import { Contact, CallDocument, VoicemailDocument } from "./types";
 import { 
   googleSignIn, 
   emailPasswordSignIn,
+  requestGoogleWorkspaceAccess,
   initAuth, 
   logout, 
   createCallDoc, 
@@ -153,7 +154,7 @@ export default function App() {
     }
 
     if (user) {
-      loadGoogleContactsAndVoicemails();
+      loadGoogleContactsAndVoicemails(false);
       setupIncomingCallListener();
     } else {
       // Clear data if logged out
@@ -166,14 +167,20 @@ export default function App() {
     }
   }, [user, accessToken]);
 
-  const loadGoogleContactsAndVoicemails = async () => {
+  const loadGoogleContactsAndVoicemails = async (allowGooglePrompt = true) => {
     if (!user || !user.email) return;
     setIsLoadingContacts(true);
     setIsLoadingVoicemails(true);
     
     try {
-      if (accessToken) {
-        const contactList = await fetchGoogleContacts(accessToken);
+      let tokenForGoogleApis = accessToken;
+      if (!tokenForGoogleApis && allowGooglePrompt) {
+        tokenForGoogleApis = await requestGoogleWorkspaceAccess();
+        setAccessToken(tokenForGoogleApis);
+      }
+
+      if (tokenForGoogleApis) {
+        const contactList = await fetchGoogleContacts(tokenForGoogleApis);
         setContacts(contactList);
       } else {
         setContacts([]);
@@ -795,7 +802,7 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={loadGoogleContactsAndVoicemails}
+                    onClick={() => loadGoogleContactsAndVoicemails(true)}
                     className="h-9 px-3 rounded-full border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 text-[11px] font-black active:scale-95 transition"
                   >
                     Sync
