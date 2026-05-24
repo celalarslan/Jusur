@@ -326,21 +326,26 @@ export default function App() {
       let meetingUri = `jusur://internal/${Date.now()}`;
       if (accessToken) {
         console.log("Requesting backend Google Meet rest API space creation...");
-        const meetRes = await fetch("/api/meet/create-space", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
+        try {
+          const meetRes = await fetch("/api/meet/create-space", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Content-Type": "application/json"
+            }
+          });
+
+          if (meetRes.ok) {
+            const meetData = await meetRes.json();
+            meetingUri = meetData.meetingUri;
+            console.log("Ad-hoc Google Meet space created successfully:", meetingUri);
+          } else {
+            const details = await meetRes.json().catch(() => ({}));
+            console.warn("Google Meet space creation skipped; falling back to in-app WebRTC signaling.", details);
           }
-        });
-
-        if (!meetRes.ok) {
-          throw new Error("Could not construct Google Meet room. API quota limit or token expired.");
+        } catch (meetError) {
+          console.warn("Google Meet space creation failed; falling back to in-app WebRTC signaling.", meetError);
         }
-
-        const meetData = await meetRes.json();
-        meetingUri = meetData.meetingUri;
-        console.log("Ad-hoc Google Meet space created successfully:", meetingUri);
       }
 
       // Create Call signaling document with 'ringing' status
