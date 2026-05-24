@@ -10,6 +10,7 @@ interface SecretaryOverlayProps {
 }
 
 export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
+  const assistantLocale = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("tr") ? "tr-TR" : "en-US";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [typedMessage, setTypedMessage] = useState("");
@@ -29,7 +30,10 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
 
   // Trigger initial greeting voice with text
   useEffect(() => {
-    const greeting = `Hello! I am ${call.receiverEmail.split("@")[0]}'s AI Secretary. They are currently unavailable. I am here to take a message. What is your name and what are you calling about?`;
+    const receiverName = call.receiverEmail.split("@")[0];
+    const greeting = assistantLocale.startsWith("tr")
+      ? `Merhaba, ben ${receiverName} için çalışan Jusur yapay zeka sekreteriyim. Şu anda müsait değil. Mesajınızı alabilirim; adınızı ve arama nedeninizi söyler misiniz?`
+      : `Hello, I am ${receiverName}'s Jusur AI secretary. They are currently unavailable. I can take a message; what is your name and why are you calling?`;
     
     setMessages([{
       role: "assistant",
@@ -49,7 +53,7 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
         audioPlayingRef.current.pause();
       }
     };
-  }, []);
+  }, [assistantLocale, call.id, call.receiverEmail]);
 
   // Browser Text-To-Speech / Audio player helper
   const speakResponse = (text: string, extAudioBase64: string | null) => {
@@ -64,13 +68,19 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
   const fallbackTTS = (text: string) => {
     if ("speechSynthesis" in window) {
       const utterance = new SpeechSynthesisUtterance(text);
-      // Attempt to pick a polished natural female / male voice if available
+      utterance.lang = assistantLocale;
       const voices = window.speechSynthesis.getVoices();
       if (voices.length > 0) {
-        utterance.voice = voices.find(v => v.lang.includes("en")) || voices[0];
+        const exactLocale = assistantLocale.toLowerCase();
+        const baseLocale = exactLocale.split("-")[0];
+        utterance.voice =
+          voices.find((voice) => voice.lang.toLowerCase() === exactLocale && /google|premium|enhanced|natural/i.test(voice.name)) ||
+          voices.find((voice) => voice.lang.toLowerCase() === exactLocale) ||
+          voices.find((voice) => voice.lang.toLowerCase().startsWith(baseLocale)) ||
+          voices[0];
       }
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
+      utterance.rate = assistantLocale.startsWith("tr") ? 1.08 : 1.04;
+      utterance.pitch = 1.0;
       window.speechSynthesis.speak(utterance);
     } else {
       console.warn("SpeechSynthesis API not supported on this browser.");
@@ -177,7 +187,8 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
           callerAudio: base64Audio,
           callerText: textContent,
           receiverName: call.receiverEmail.split("@")[0],
-          history: apiHistory
+          history: apiHistory,
+          responseLanguage: assistantLocale.startsWith("tr") ? "Turkish" : "English"
         })
       });
 

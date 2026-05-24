@@ -1,0 +1,19 @@
+{
+  "name": "Jusur Call",
+  "short_name": "Jusur",
+  "description": "Real-time voice, video, and live translation calling.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050609",
+  "theme_color": "#050609",
+  "icons": [
+    {
+      "src": "/Jusoor_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

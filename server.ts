@@ -160,7 +160,7 @@ app.post("/api/notify/incoming-call", async (req, res) => {
 
 // 2. AI Secretary audio/text agent processor
 app.post("/api/secretary/respond", async (req, res) => {
-  const { callerAudio, callerText, receiverName, history } = req.body;
+  const { callerAudio, callerText, receiverName, history, responseLanguage } = req.body;
   
   if (!receiverName) {
     return res.status(400).json({ error: "receiverName is required" });
@@ -177,6 +177,8 @@ app.post("/api/secretary/respond", async (req, res) => {
     You are an AI assistant/secretary for ${receiverName}. The caller is on the phone line but ${receiverName} is currently unavailable.
     Greet the caller briefly, ask what the call is about, and politely hold a short conversation to record their message or voicemail intent.
     Your spoken responses MUST be extremely concise (1-2 sentences), professional, natural, and direct.
+    Respond only in ${responseLanguage || "the caller's language"}.
+    Use native, natural ${responseLanguage || "spoken"} phrasing. Do not output English text when the requested response language is Turkish.
 
     If you have gathered the details (e.g. they provided their name, email/contact, and details of why they are calling), summarize the intent and let them know you'll pass it along, then suggest they can hang up to register the voicemail.
     `;

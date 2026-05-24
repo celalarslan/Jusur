@@ -19,8 +19,8 @@ messaging.onBackgroundMessage((payload) => {
 
   self.registration.showNotification(title, {
     body,
-    icon: "/assets/Jusoor_icon-H-wa72S-.png",
-    badge: "/assets/Jusoor_icon-H-wa72S-.png",
+    icon: "/Jusoor_icon.png",
+    badge: "/Jusoor_icon.png",
     data: { url },
     requireInteraction: true,
     tag: payload.data?.callId || "jusur-incoming-call"

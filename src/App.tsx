@@ -39,6 +39,7 @@ import {
 } from "./firebase";
 import { fetchGoogleContacts } from "./contacts";
 import { enableIncomingCallNotifications } from "./notifications";
+import { createTranslator, getBrowserLocale } from "./i18n";
 
 // Modular sub components
 import { IncomingOverlay } from "./components/IncomingOverlay";
@@ -71,6 +72,8 @@ const QUICK_LANGUAGES = [
 ];
 
 export default function App() {
+  const locale = getBrowserLocale();
+  const t = createTranslator(locale);
   // Authentication states
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -759,7 +762,7 @@ export default function App() {
                       type="text"
                       value={manualDialInput}
                       onChange={(e) => setManualDialInput(e.target.value)}
-                      placeholder="Email, phone, or contact"
+                      placeholder={t("contactInput")}
                       className="w-full h-14 rounded-2xl border border-white/10 bg-slate-950/80 pl-11 pr-4 text-[15px] font-bold text-white placeholder:text-slate-600 outline-none focus:border-cyan-300/40"
                     />
                   </div>
@@ -772,7 +775,7 @@ export default function App() {
                       className="h-16 rounded-2xl bg-gradient-to-br from-emerald-300 to-cyan-300 text-slate-950 font-black flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition shadow-[0_0_28px_rgba(45,212,191,0.22)]"
                     >
                       <Phone className="w-5 h-5" />
-                      <span>Audio</span>
+                      <span>{t("audio")}</span>
                     </button>
                     <button
                       type="button"
@@ -781,7 +784,7 @@ export default function App() {
                       className="h-16 rounded-2xl bg-gradient-to-br from-fuchsia-400 to-blue-400 text-white font-black flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition shadow-[0_0_28px_rgba(96,165,250,0.24)]"
                     >
                       <Video className="w-5 h-5" />
-                      <span>Video</span>
+                      <span>{t("video")}</span>
                     </button>
                   </div>
                 </div>
@@ -789,7 +792,7 @@ export default function App() {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-2xl border border-cyan-300/10 bg-white/[0.04] p-3">
                     <Languages className="w-4 h-4 text-cyan-200 mb-2" />
-                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">Your language</label>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">{t("yourLanguage")}</label>
                     <select
                       value={myLanguage}
                       onChange={(e) => setMyLanguage(e.target.value)}
@@ -802,7 +805,7 @@ export default function App() {
                   </div>
                   <div className="rounded-2xl border border-cyan-300/10 bg-white/[0.04] p-3">
                     <MessageCircle className="w-4 h-4 text-violet-200 mb-2" />
-                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">Translate to</label>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">{t("translateTo")}</label>
                     <select
                       value={partnerLanguage}
                       onChange={(e) => setPartnerLanguage(e.target.value)}
@@ -815,29 +818,29 @@ export default function App() {
                   </div>
                   <div className="rounded-2xl border border-cyan-300/10 bg-white/[0.04] p-3">
                     <Sparkles className="w-4 h-4 text-amber-200 mb-2" />
-                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">Voice</label>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 block mb-1">{t("voice")}</label>
                     <select
                       value={preferredVoice}
                       onChange={(e) => setPreferredVoice(e.target.value as "Aoede" | "Fenrir")}
                       className="w-full bg-transparent text-[11px] font-bold text-white outline-none"
                     >
-                      <option value="Aoede">Female</option>
-                      <option value="Fenrir">Male</option>
+                      <option value="Aoede">{t("female")}</option>
+                      <option value="Fenrir">{t("male")}</option>
                     </select>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-black tracking-tight">Chats</h2>
-                    <p className="text-[11px] text-slate-500 font-semibold">{filteredContacts.length} ready contacts</p>
+                    <h2 className="text-base font-black tracking-tight">{t("chats")}</h2>
+                    <p className="text-[11px] text-slate-500 font-semibold">{filteredContacts.length} {t("readyContacts")}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => loadGoogleContactsAndVoicemails(true)}
                     className="h-9 px-3 rounded-full border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 text-[11px] font-black active:scale-95 transition"
                   >
-                    Sync
+                    {t("sync")}
                   </button>
                 </div>
 
@@ -849,8 +852,8 @@ export default function App() {
                   ) : filteredContacts.length === 0 ? (
                     <div className="rounded-[26px] border border-white/10 bg-white/[0.04] p-7 text-center">
                       <PhoneCall className="w-8 h-8 text-cyan-200/60 mx-auto mb-3" />
-                      <p className="text-sm font-black">No contacts yet</p>
-                      <p className="text-xs text-slate-500 mt-1">Use the search box above or sync Google Contacts.</p>
+                      <p className="text-sm font-black">{t("noContacts")}</p>
+                      <p className="text-xs text-slate-500 mt-1">{t("noContactsHint")}</p>
                     </div>
                   ) : (
                     filteredContacts.map((contact) => (
@@ -904,8 +907,8 @@ export default function App() {
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <div>
-                    <h2 className="text-xl font-black tracking-tight">Settings</h2>
-                    <p className="text-xs text-slate-500">Profile, inbox, sync and security</p>
+                    <h2 className="text-xl font-black tracking-tight">{t("settings")}</h2>
+                    <p className="text-xs text-slate-500">{t("settingsHint")}</p>
                   </div>
                 </div>
 
@@ -926,7 +929,7 @@ export default function App() {
                 <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4 space-y-3">
                   <div className="flex items-center gap-2 text-cyan-100 font-black text-sm">
                     <SlidersHorizontal className="w-4 h-4" />
-                    Call defaults
+                    {t("callDefaults")}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <select value={myLanguage} onChange={(e) => setMyLanguage(e.target.value)} className="h-12 rounded-2xl bg-slate-950 border border-white/10 px-3 text-xs font-bold outline-none">
@@ -937,8 +940,8 @@ export default function App() {
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <button type="button" onClick={() => setPreferredVoice("Aoede")} className={`h-12 rounded-2xl border text-xs font-black ${preferredVoice === "Aoede" ? "bg-cyan-300 text-slate-950 border-cyan-300" : "bg-slate-950 border-white/10 text-slate-300"}`}>Female voice</button>
-                    <button type="button" onClick={() => setPreferredVoice("Fenrir")} className={`h-12 rounded-2xl border text-xs font-black ${preferredVoice === "Fenrir" ? "bg-violet-300 text-slate-950 border-violet-300" : "bg-slate-950 border-white/10 text-slate-300"}`}>Male voice</button>
+                    <button type="button" onClick={() => setPreferredVoice("Aoede")} className={`h-12 rounded-2xl border text-xs font-black ${preferredVoice === "Aoede" ? "bg-cyan-300 text-slate-950 border-cyan-300" : "bg-slate-950 border-white/10 text-slate-300"}`}>{t("female")}</button>
+                    <button type="button" onClick={() => setPreferredVoice("Fenrir")} className={`h-12 rounded-2xl border text-xs font-black ${preferredVoice === "Fenrir" ? "bg-violet-300 text-slate-950 border-violet-300" : "bg-slate-950 border-white/10 text-slate-300"}`}>{t("male")}</button>
                   </div>
                 </div>
 
@@ -946,7 +949,7 @@ export default function App() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2 text-violet-100 font-black text-sm">
                       <Voicemail className="w-4 h-4" />
-                      Secretary inbox
+                      {t("secretaryInbox")}
                     </div>
                     <button type="button" onClick={reloadVoicemails} className="text-[11px] font-black text-cyan-200">Refresh</button>
                   </div>
@@ -962,7 +965,7 @@ export default function App() {
                 <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4 space-y-3">
                   <div className="flex items-center gap-2 text-emerald-100 font-black text-sm">
                     <ShieldCheck className="w-4 h-4" />
-                    Service status
+                    {t("serviceStatus")}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px] font-bold text-slate-400">
                     <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Firebase: j-call-prod</span>
@@ -979,7 +982,7 @@ export default function App() {
                   className="w-full h-13 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-100 font-black flex items-center justify-center gap-2 disabled:opacity-60"
                 >
                   {notificationStatus === "enabling" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
-                  {notificationStatus === "enabled" ? "Call alerts enabled" : "Enable call alerts"}
+                  {notificationStatus === "enabled" ? t("callAlertsEnabled") : t("enableCallAlerts")}
                 </button>
 
                 <button
@@ -988,7 +991,7 @@ export default function App() {
                   className="w-full h-13 rounded-2xl border border-rose-400/20 bg-rose-500/10 text-rose-200 font-black flex items-center justify-center gap-2"
                 >
                   <LogOut className="w-4 h-4" />
-                  Sign out
+                  {t("signOut")}
                 </button>
               </div>
             )}
