@@ -1,9 +1,10 @@
 {
-  "projectId": "gen-lang-client-0879846910",
-  "appId": "1:186272529907:web:876478ab5331c921fe6686",
-  "apiKey": "AIzaSyCzlDrh_p56N22V9coI6FdNCOuzO_odKA0",
-  "authDomain": "gen-lang-client-0879846910.firebaseapp.com",
-  "storageBucket": "gen-lang-client-0879846910.firebasestorage.app",
-  "messagingSenderId": "186272529907",
+  "projectId": "j-call-prod",
+  "appId": "1:734750832655:web:9aa4880363aa0fb9884b7a",
+  "apiKey": "AIzaSyDNNE8y7R7cbNStbtJiyhwTSvZRo2oXlv0",
+  "authDomain": "j-call-prod.firebaseapp.com",
+  "storageBucket": "j-call-prod.firebasestorage.app",
+  "messagingSenderId": "734750832655",
+  "googleOAuthClientId": "734750832655-95nf715sk09gqfslon57bulnf70cm7l3.apps.googleusercontent.com",
   "measurementId": ""
 }

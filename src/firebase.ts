@@ -1,11 +1,14 @@
 import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
-  signInWithPopup, 
   GoogleAuthProvider, 
   onAuthStateChanged, 
   User,
-  signOut 
+  signOut,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -33,12 +36,36 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Authentication scopes required
-const provider = new GoogleAuthProvider();
-provider.addScope("https://www.googleapis.com/auth/contacts.readonly");
-provider.addScope("https://www.googleapis.com/auth/meetings.space.created");
-provider.addScope("https://www.googleapis.com/auth/userinfo.profile");
-provider.addScope("https://www.googleapis.com/auth/userinfo.email");
+const GOOGLE_OAUTH_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID ||
+  (firebaseConfig as { googleOAuthClientId?: string }).googleOAuthClientId ||
+  "";
+const GOOGLE_OAUTH_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/contacts.readonly",
+  "https://www.googleapis.com/auth/meetings.space.created"
+].join(" ");
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            prompt?: string;
+            callback: (response: { access_token?: string; error?: string; error_description?: string }) => void;
+          }) => {
+            requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+          };
+        };
+      };
+    };
+  }
+}
 
 // Variables for managing the access token in memory safely
 let isSigningIn = false;
@@ -92,20 +119,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Authentication Helpers
 export const initAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthSuccess?: (user: User, token: string | null) => void,
   onAuthFailure?: () => void
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        // Try to check if token exists or clear it. 
-        // Note: Firebase Auth tokens don't persist bearer tokens, 
-        // so if there's no cached token, user must sign in.
-        // We can let the user click sign in to refresh the access token.
-        if (onAuthFailure) onAuthFailure();
-      }
+      if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
     } else {
       cachedAccessToken = null;
       if (onAuthFailure) onAuthFailure();
@@ -113,15 +132,44 @@ export const initAuth = (
   });
 };
 
+export const emailPasswordSignIn = async (
+  email: string,
+  password: string,
+  displayName?: string,
+  mode: "signin" | "signup" = "signin"
+): Promise<{ user: User; accessToken: null }> => {
+  try {
+    isSigningIn = true;
+    cachedAccessToken = null;
+    let credential;
+    if (mode === "signup") {
+      credential = await createUserWithEmailAndPassword(auth, email, password);
+    } else {
+      credential = await signInWithEmailAndPassword(auth, email, password);
+    }
+
+    if (displayName && credential.user.displayName !== displayName) {
+      await updateProfile(credential.user, { displayName });
+    }
+
+    return { user: credential.user, accessToken: null };
+  } finally {
+    isSigningIn = false;
+  }
+};
+
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error("Failed to extract OAuth accessor token from registration credentials.");
+
+    await ensureGoogleIdentityServices();
+    const accessToken = await requestGoogleAccessToken();
+    const credential = GoogleAuthProvider.credential(null, accessToken);
+    const result = await signInWithCredential(auth, credential);
+    if (!result.user) {
+      throw new Error("Google sign-in completed without a Firebase user.");
     }
-    cachedAccessToken = credential.accessToken;
+    cachedAccessToken = accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error("Google OAuth SignIn Error:", error);
@@ -130,6 +178,63 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     isSigningIn = false;
   }
 };
+
+function ensureGoogleIdentityServices(): Promise<void> {
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>("script[data-google-identity-services]");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Google Identity Services script failed to load.")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleIdentityServices = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google Identity Services script failed to load."));
+    document.head.appendChild(script);
+  });
+}
+
+function requestGoogleAccessToken(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!GOOGLE_OAUTH_CLIENT_ID) {
+      reject(new Error("Google OAuth client ID is missing. Set VITE_GOOGLE_OAUTH_CLIENT_ID after creating a Web OAuth client in Google Cloud."));
+      return;
+    }
+
+    const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      scope: GOOGLE_OAUTH_SCOPES,
+      prompt: "consent",
+      callback: (response) => {
+        if (response.error) {
+          reject(new Error(response.error_description || response.error));
+          return;
+        }
+        if (!response.access_token) {
+          reject(new Error("Google did not return an access token."));
+          return;
+        }
+        resolve(response.access_token);
+      }
+    });
+
+    if (!tokenClient) {
+      reject(new Error("Google Identity Services is unavailable."));
+      return;
+    }
+
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  });
+}
 
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;

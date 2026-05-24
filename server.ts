@@ -5,10 +5,11 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import dotenv from "dotenv";
 import { WebSocketServer } from "ws";
 
+dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Increase limit to handle base64 audio uploads
 app.use(express.json({ limit: "50mb" }));
@@ -125,7 +126,7 @@ app.post("/api/secretary/respond", async (req, res) => {
 
     console.log("Calling Gemini API Secretary...");
     const aiResponse = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: { parts: promptParts },
       config: {
         responseMimeType: "application/json",
@@ -195,19 +196,21 @@ Directions:
     console.log("Connecting to Gemini Live API...");
     
     session = await ai.live.connect({
-      model: "gemini-3.1-flash-live-preview",
+      model: "gemini-live-2.5-flash-preview",
       callbacks: {
         onmessage: (message: any) => {
           // Send all server content and audio chunks to the client
           const parts = message.serverContent?.modelTurn?.parts;
           
           let audioBase64: string | null = null;
+          let audioMimeType: string | null = null;
           let textTranscript: string | null = null;
           
           if (parts) {
             for (const part of parts) {
               if (part.inlineData?.data) {
                 audioBase64 = part.inlineData.data;
+                audioMimeType = part.inlineData.mimeType || null;
               }
               if (part.text) {
                 textTranscript = part.text;
@@ -217,14 +220,19 @@ Directions:
           
           // Fallback check for transcription fields
           const modelTranscript = message.serverContent?.modelTurn?.parts?.find((p: any) => p.text)?.text;
-          const outputTranscript = message.serverContent?.outputAudioTranscription?.text;
-          const inputTranscript = message.serverContent?.inputAudioTranscription?.text;
+          const outputTranscript =
+            message.serverContent?.outputTranscription?.text ||
+            message.serverContent?.outputAudioTranscription?.text;
+          const inputTranscript =
+            message.serverContent?.inputTranscription?.text ||
+            message.serverContent?.inputAudioTranscription?.text;
           
           const transcript = textTranscript || modelTranscript || outputTranscript;
           
           if (audioBase64 || transcript || inputTranscript || message.serverContent?.interrupted) {
             clientWs.send(JSON.stringify({
               audio: audioBase64,
+              audioMimeType,
               transcript: transcript,
               inputTranscript: inputTranscript,
               interrupted: message.serverContent?.interrupted || false

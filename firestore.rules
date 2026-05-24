@@ -24,9 +24,12 @@ service cloud.firestore {
         resource.data.receiverEmail == request.auth.token.email
       );
 
-      // Only the caller can delete the call doc or clean up
+      // Either participant can clean up a finished call document.
       allow delete: if request.auth != null &&
-        resource.data.callerEmail == request.auth.token.email;
+        (
+          resource.data.callerEmail == request.auth.token.email ||
+          resource.data.receiverEmail == request.auth.token.email
+        );
     }
 
     match /voicemails/{voicemailId} {
