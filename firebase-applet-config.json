@@ -6,5 +6,6 @@
   "storageBucket": "j-call-prod.firebasestorage.app",
   "messagingSenderId": "734750832655",
   "googleOAuthClientId": "734750832655-95nf715sk09gqfslon57bulnf70cm7l3.apps.googleusercontent.com",
+  "fcmVapidKey": "",
   "measurementId": ""
 }

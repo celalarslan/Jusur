@@ -38,6 +38,7 @@ import {
   fetchVoicemails
 } from "./firebase";
 import { fetchGoogleContacts } from "./contacts";
+import { enableIncomingCallNotifications } from "./notifications";
 
 // Modular sub components
 import { IncomingOverlay } from "./components/IncomingOverlay";
@@ -88,6 +89,7 @@ export default function App() {
   const [myLanguage, setMyLanguage] = useState("auto");
   const [partnerLanguage, setPartnerLanguage] = useState("Turkish (Türkçe)");
   const [preferredVoice, setPreferredVoice] = useState<"Aoede" | "Fenrir">("Aoede");
+  const [notificationStatus, setNotificationStatus] = useState<"idle" | "enabling" | "enabled" | "error">("idle");
 
   // Phonebook contacts
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -273,6 +275,18 @@ export default function App() {
     }
   };
 
+  const handleEnableNotifications = async () => {
+    setNotificationStatus("enabling");
+    try {
+      await enableIncomingCallNotifications();
+      setNotificationStatus("enabled");
+    } catch (error) {
+      console.error("Notification registration failed:", error);
+      setNotificationStatus("error");
+      alert(error instanceof Error ? error.message : "Could not enable notifications.");
+    }
+  };
+
   // 4. Real-time Incoming Call Listener
   const setupIncomingCallListener = () => {
     if (!user?.email) return;
@@ -356,6 +370,14 @@ export default function App() {
         receiverEmail: contact.email,
         meetUri: meetingUri,
         status: "ringing"
+      });
+
+      fetch("/api/notify/incoming-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId: callDocId })
+      }).catch((notifyError) => {
+        console.warn("Incoming call push notification failed:", notifyError);
       });
 
       // Save call state locally
@@ -944,6 +966,16 @@ export default function App() {
                     <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Meet: Google token</span>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleEnableNotifications}
+                  disabled={notificationStatus === "enabling" || notificationStatus === "enabled"}
+                  className="w-full h-13 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-100 font-black flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {notificationStatus === "enabling" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                  {notificationStatus === "enabled" ? "Call alerts enabled" : "Enable call alerts"}
+                </button>
 
                 <button
                   type="button"

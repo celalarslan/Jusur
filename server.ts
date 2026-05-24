@@ -4,6 +4,9 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import dotenv from "dotenv";
 import { WebSocketServer } from "ws";
+import { initializeApp as initializeAdminApp, getApps } from "firebase-admin/app";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
+import { getMessaging as getAdminMessaging } from "firebase-admin/messaging";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
@@ -33,6 +36,16 @@ function getGemini(): GoogleGenAI {
     });
   }
   return aiClient;
+}
+
+function getFirebaseAdmin() {
+  if (!getApps().length) {
+    initializeAdminApp();
+  }
+  return {
+    db: getAdminFirestore(),
+    messaging: getAdminMessaging()
+  };
 }
 
 // 1. Google Meet space creation proxy
@@ -70,6 +83,67 @@ app.post("/api/meet/create-space", async (req, res) => {
   } catch (error) {
     console.error("Error creating Google Meet Space:", error);
     return res.status(500).json({ error: "Internal server error creating Google Meet space" });
+  }
+});
+
+app.post("/api/notify/incoming-call", async (req, res) => {
+  const { callId } = req.body || {};
+  if (!callId) {
+    return res.status(400).json({ error: "callId is required" });
+  }
+
+  try {
+    const { db, messaging } = getFirebaseAdmin();
+    const callSnap = await db.collection("calls").doc(String(callId)).get();
+    if (!callSnap.exists) {
+      return res.status(404).json({ error: "Call not found" });
+    }
+
+    const call = callSnap.data() || {};
+    const receiverEmail = call.receiverEmail;
+    if (!receiverEmail) {
+      return res.status(400).json({ error: "Call is missing receiverEmail" });
+    }
+
+    const tokenSnap = await db
+      .collection("notificationTokens")
+      .where("ownerEmail", "==", receiverEmail)
+      .get();
+
+    const tokens = tokenSnap.docs
+      .map((docSnap) => docSnap.data().token)
+      .filter((token): token is string => typeof token === "string" && token.length > 0);
+
+    if (tokens.length === 0) {
+      return res.json({ sent: 0, reason: "No notification tokens registered for receiver." });
+    }
+
+    const origin = req.headers.origin || process.env.APP_URL || "https://j-call-734750832655.europe-west1.run.app";
+    const callerName = call.callerName || call.callerEmail || "Jusur caller";
+    const response = await messaging.sendEachForMulticast({
+      tokens,
+      notification: {
+        title: "Incoming Jusur call",
+        body: `${callerName} is calling you`
+      },
+      data: {
+        callId: String(callId),
+        url: `${origin}/`
+      },
+      webpush: {
+        fcmOptions: {
+          link: `${origin}/`
+        }
+      }
+    });
+
+    return res.json({
+      sent: response.successCount,
+      failed: response.failureCount
+    });
+  } catch (error: any) {
+    console.error("Incoming call notification failed:", error);
+    return res.status(500).json({ error: error.message || "Failed to send incoming call notification" });
   }
 });
 

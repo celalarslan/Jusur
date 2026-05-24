@@ -24,7 +24,8 @@ import {
   query,
   where,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
+  Timestamp
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 import { CallDocument, VoicemailDocument } from "./types";
@@ -252,6 +253,25 @@ export const getAccessToken = async (): Promise<string | null> => {
 export const logout = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+};
+
+export const saveNotificationToken = async (token: string): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser?.email) {
+    throw new Error("Cannot register notifications before signing in.");
+  }
+
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const tokenId = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
+  await setDoc(doc(db, "notificationTokens", tokenId), {
+    token,
+    ownerEmail: currentUser.email,
+    userId: currentUser.uid,
+    updatedAt: Timestamp.now()
+  }, { merge: true });
 };
 
 // Firestore Methods with Mandatory handleFirestoreError Wrapping

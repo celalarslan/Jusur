@@ -50,5 +50,16 @@ service cloud.firestore {
         resource.data.receiverEmail == request.auth.token.email
       );
     }
+
+    match /notificationTokens/{tokenId} {
+      allow read: if false;
+
+      allow create, update: if request.auth != null &&
+        request.resource.data.ownerEmail == request.auth.token.email &&
+        request.resource.data.userId == request.auth.uid;
+
+      allow delete: if request.auth != null &&
+        resource.data.ownerEmail == request.auth.token.email;
+    }
   }
 }
