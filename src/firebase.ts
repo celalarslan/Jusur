@@ -255,7 +255,7 @@ export const logout = async () => {
   cachedAccessToken = null;
 };
 
-export const saveNotificationToken = async (token: string): Promise<void> => {
+export const saveNotificationToken = async (token: string, platform: "web" | "android" = "web"): Promise<void> => {
   const currentUser = auth.currentUser;
   if (!currentUser?.email) {
     throw new Error("Cannot register notifications before signing in.");
@@ -268,6 +268,7 @@ export const saveNotificationToken = async (token: string): Promise<void> => {
 
   await setDoc(doc(db, "notificationTokens", tokenId), {
     token,
+    platform,
     ownerEmail: currentUser.email,
     userId: currentUser.uid,
     updatedAt: Timestamp.now()

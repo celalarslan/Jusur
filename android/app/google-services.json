@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "734750832655",
+    "project_id": "j-call-prod",
+    "storage_bucket": "j-call-prod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:734750832655:android:17affaa3515ac181884b7a",
+        "android_client_info": {
+          "package_name": "com.jusur.call"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "734750832655-kv3mjuqt6tnnonamqvoaepkoqh9j9dlo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAsJRG_rqJZBZ4ocj81oFnpcl9HXJRLdog"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "734750832655-95nf715sk09gqfslon57bulnf70cm7l3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

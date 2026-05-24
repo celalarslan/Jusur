@@ -110,9 +110,16 @@ app.post("/api/notify/incoming-call", async (req, res) => {
       .where("ownerEmail", "==", receiverEmail)
       .get();
 
-    const tokens = tokenSnap.docs
-      .map((docSnap) => docSnap.data().token)
-      .filter((token): token is string => typeof token === "string" && token.length > 0);
+    const tokenRecords = tokenSnap.docs
+      .map((docSnap) => docSnap.data())
+      .filter((record) => typeof record.token === "string" && record.token.length > 0);
+    const webTokens = tokenRecords
+      .filter((record) => record.platform !== "android")
+      .map((record) => record.token as string);
+    const androidTokens = tokenRecords
+      .filter((record) => record.platform === "android")
+      .map((record) => record.token as string);
+    const tokens = [...webTokens, ...androidTokens];
 
     if (tokens.length === 0) {
       console.log("Incoming call notification skipped: no registered token for", receiverEmail);
@@ -121,36 +128,63 @@ app.post("/api/notify/incoming-call", async (req, res) => {
 
     const origin = req.headers.origin || process.env.APP_URL || "https://j-call-734750832655.europe-west1.run.app";
     const callerName = call.callerName || call.callerEmail || "Jusur caller";
-    const response = await messaging.sendEachForMulticast({
-      tokens,
-      notification: {
-        title: "Incoming Jusur call",
-        body: `${callerName} is calling you`
-      },
-      data: {
-        callId: String(callId),
-        url: `${origin}/`
-      },
-      webpush: {
-        fcmOptions: {
-          link: `${origin}/`
+    const responses = [];
+
+    if (webTokens.length > 0) {
+      responses.push(await messaging.sendEachForMulticast({
+        tokens: webTokens,
+        notification: {
+          title: "Incoming Jusur call",
+          body: `${callerName} is calling you`
+        },
+        data: {
+          callId: String(callId),
+          url: `${origin}/`
+        },
+        webpush: {
+          fcmOptions: {
+            link: `${origin}/`
+          }
         }
-      }
-    });
+      }));
+    }
+
+    if (androidTokens.length > 0) {
+      responses.push(await messaging.sendEachForMulticast({
+        tokens: androidTokens,
+        data: {
+          type: "incoming_call",
+          callId: String(callId),
+          callerName: String(callerName),
+          url: `${origin}/`
+        },
+        android: {
+          priority: "high"
+        }
+      }));
+    }
+
+    const successCount = responses.reduce((total, item) => total + item.successCount, 0);
+    const failureCount = responses.reduce((total, item) => total + item.failureCount, 0);
+    const errors = responses.flatMap((item) =>
+      item.responses
+        .filter((response) => !response.success)
+        .map((response) => response.error?.message)
+    );
 
     console.log("Incoming call notification result:", {
       receiverEmail,
       tokenCount: tokens.length,
-      successCount: response.successCount,
-      failureCount: response.failureCount,
-      errors: response.responses
-        .filter((item) => !item.success)
-        .map((item) => item.error?.message)
+      webTokenCount: webTokens.length,
+      androidTokenCount: androidTokens.length,
+      successCount,
+      failureCount,
+      errors
     });
 
     return res.json({
-      sent: response.successCount,
-      failed: response.failureCount
+      sent: successCount,
+      failed: failureCount
     });
   } catch (error: any) {
     console.error("Incoming call notification failed:", error);
