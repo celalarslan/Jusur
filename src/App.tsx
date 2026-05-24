@@ -158,6 +158,11 @@ export default function App() {
     if (user) {
       loadGoogleContactsAndVoicemails(false);
       setupIncomingCallListener();
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        enableIncomingCallNotifications()
+          .then(() => setNotificationStatus("enabled"))
+          .catch((error) => console.warn("Notification token refresh failed:", error));
+      }
     } else {
       // Clear data if logged out
       setContacts([]);

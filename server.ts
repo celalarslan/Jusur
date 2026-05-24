@@ -115,6 +115,7 @@ app.post("/api/notify/incoming-call", async (req, res) => {
       .filter((token): token is string => typeof token === "string" && token.length > 0);
 
     if (tokens.length === 0) {
+      console.log("Incoming call notification skipped: no registered token for", receiverEmail);
       return res.json({ sent: 0, reason: "No notification tokens registered for receiver." });
     }
 
@@ -135,6 +136,16 @@ app.post("/api/notify/incoming-call", async (req, res) => {
           link: `${origin}/`
         }
       }
+    });
+
+    console.log("Incoming call notification result:", {
+      receiverEmail,
+      tokenCount: tokens.length,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      errors: response.responses
+        .filter((item) => !item.success)
+        .map((item) => item.error?.message)
     });
 
     return res.json({
