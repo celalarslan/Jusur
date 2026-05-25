@@ -48,6 +48,68 @@ function getFirebaseAdmin() {
   };
 }
 
+function pcm16ToWavBase64(pcmBase64: string, sampleRate = 24000, channels = 1): string {
+  const pcmBuffer = Buffer.from(pcmBase64, "base64");
+  const header = Buffer.alloc(44);
+  const byteRate = sampleRate * channels * 2;
+  const blockAlign = channels * 2;
+
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcmBuffer.length, 40);
+
+  return Buffer.concat([header, pcmBuffer]).toString("base64");
+}
+
+async function generateSecretaryAudio(ai: GoogleGenAI, text: string, voiceName: string, responseLanguage?: string) {
+  try {
+    const spokenStyle = responseLanguage?.toLowerCase().includes("turkish")
+      ? "Türkçe doğal, sıcak, profesyonel ve akıcı bir sekreter sesiyle söyle: "
+      : "Say in a natural, warm, professional receptionist voice: ";
+
+    const audioResponse = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: `${spokenStyle}${text}` }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName }
+          }
+        }
+      }
+    });
+
+    const inlineData = audioResponse.candidates?.[0]?.content?.parts?.find((part: any) => part.inlineData)?.inlineData;
+    if (!inlineData?.data) {
+      return { audioBase64: null, audioMimeType: null };
+    }
+
+    const mimeType = inlineData.mimeType || "audio/wav";
+    if (mimeType.toLowerCase().includes("wav")) {
+      return { audioBase64: inlineData.data, audioMimeType: mimeType };
+    }
+
+    return {
+      audioBase64: pcm16ToWavBase64(inlineData.data),
+      audioMimeType: "audio/wav"
+    };
+  } catch (error) {
+    console.error("Gemini TTS failed; browser speech fallback will be used:", error);
+    return { audioBase64: null, audioMimeType: null };
+  }
+}
+
 // 1. Google Meet space creation proxy
 app.post("/api/meet/create-space", async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -194,7 +256,7 @@ app.post("/api/notify/incoming-call", async (req, res) => {
 
 // 2. AI Secretary audio/text agent processor
 app.post("/api/secretary/respond", async (req, res) => {
-  const { callerAudio, callerText, receiverName, history, responseLanguage } = req.body;
+  const { callerAudio, callerText, receiverName, history, responseLanguage, secretaryProfile } = req.body;
   
   if (!receiverName) {
     return res.status(400).json({ error: "receiverName is required" });
@@ -207,12 +269,18 @@ app.post("/api/secretary/respond", async (req, res) => {
     const promptParts: any[] = [];
 
     // Base system / task instructions
+    const representedPerson = secretaryProfile?.representsName || receiverName;
+    const customInstructions = typeof secretaryProfile?.instructions === "string" ? secretaryProfile.instructions.trim() : "";
+    const selectedLanguage = secretaryProfile?.responseLanguage || responseLanguage || "the caller's language";
+    const selectedVoice = secretaryProfile?.voiceName || "Kore";
     const systemInstruction = `
-    You are an AI assistant/secretary for ${receiverName}. The caller is on the phone line but ${receiverName} is currently unavailable.
+    You are an AI assistant/secretary representing ${representedPerson}. The caller is on the phone line but ${representedPerson} is currently unavailable.
     Greet the caller briefly, ask what the call is about, and politely hold a short conversation to record their message or voicemail intent.
     Your spoken responses MUST be extremely concise (1-2 sentences), professional, natural, and direct.
-    Respond only in ${responseLanguage || "the caller's language"}.
-    Use native, natural ${responseLanguage || "spoken"} phrasing. Do not output English text when the requested response language is Turkish.
+    Respond only in ${selectedLanguage}.
+    Use native, natural ${selectedLanguage} phrasing. Do not output English text when the requested response language is Turkish.
+    Speak like a real human receptionist: short sentences, no robotic wording, no literal translations, no over-explaining.
+    ${customInstructions ? `User-defined secretary behavior:\n${customInstructions}` : ""}
 
     If you have gathered the details (e.g. they provided their name, email/contact, and details of why they are calling), summarize the intent and let them know you'll pass it along, then suggest they can hang up to register the voicemail.
     `;
@@ -272,13 +340,13 @@ app.post("/api/secretary/respond", async (req, res) => {
     const speakText = parsedResponse.speakText || "Hello, how can I help you support?";
     const currentIntentSummary = parsedResponse.currentIntentSummary || "";
 
-    // No ElevenLabs - keep configuration purely based on Google APIs and browser-native vocalization
-    const audioBase64: string | null = null;
+    const { audioBase64, audioMimeType } = await generateSecretaryAudio(ai, speakText, selectedVoice, selectedLanguage);
 
     return res.json({
       speakText,
       currentIntentSummary,
-      audioBase64
+      audioBase64,
+      audioMimeType
     });
 
   } catch (error: any) {

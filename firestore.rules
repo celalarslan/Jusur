@@ -61,5 +61,18 @@ service cloud.firestore {
       allow delete: if request.auth != null &&
         resource.data.ownerEmail == request.auth.token.email;
     }
+
+    match /secretaryProfiles/{profileEmail} {
+      // Any signed-in caller may read a receiver's public secretary behavior.
+      allow read: if request.auth != null;
+
+      // Users can only maintain the secretary profile attached to their own email.
+      allow create, update: if request.auth != null &&
+        profileEmail == request.auth.token.email &&
+        request.resource.data.ownerEmail == request.auth.token.email;
+
+      allow delete: if request.auth != null &&
+        profileEmail == request.auth.token.email;
+    }
   }
 }

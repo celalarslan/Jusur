@@ -28,7 +28,7 @@ import {
   Timestamp
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
-import { CallDocument, VoicemailDocument } from "./types";
+import { CallDocument, SecretaryProfile, VoicemailDocument } from "./types";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -273,6 +273,36 @@ export const saveNotificationToken = async (token: string, platform: "web" | "an
     userId: currentUser.uid,
     updatedAt: Timestamp.now()
   }, { merge: true });
+};
+
+const profileDocIdFromEmail = (email: string) => email.trim();
+
+export const saveSecretaryProfile = async (profile: Omit<SecretaryProfile, "ownerEmail">): Promise<void> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser?.email) {
+    throw new Error("Cannot save secretary profile before signing in.");
+  }
+
+  const ownerEmail = currentUser.email;
+  await setDoc(doc(db, "secretaryProfiles", profileDocIdFromEmail(ownerEmail)), {
+    ...profile,
+    ownerEmail,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+};
+
+export const fetchSecretaryProfile = async (ownerEmail: string): Promise<SecretaryProfile | null> => {
+  const normalizedEmail = profileDocIdFromEmail(ownerEmail);
+  if (!normalizedEmail) return null;
+
+  try {
+    const docSnap = await getDoc(doc(db, "secretaryProfiles", normalizedEmail));
+    if (!docSnap.exists()) return null;
+    return docSnap.data() as SecretaryProfile;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `secretaryProfiles/${normalizedEmail}`);
+    return null;
+  }
 };
 
 // Firestore Methods with Mandatory handleFirestoreError Wrapping

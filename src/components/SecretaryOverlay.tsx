@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Mic, Square, Send, PhoneOff, User, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
-import { ChatMessage, CallDocument } from "../types";
-import { createVoicemailDoc, updateCallDoc, deleteCallDoc } from "../firebase";
+import { ChatMessage, CallDocument, SecretaryProfile } from "../types";
+import { createVoicemailDoc, updateCallDoc, deleteCallDoc, fetchSecretaryProfile } from "../firebase";
 
 interface SecretaryOverlayProps {
   call: CallDocument;
@@ -12,6 +12,8 @@ interface SecretaryOverlayProps {
 export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
   const assistantLocale = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("tr") ? "tr-TR" : "en-US";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [secretaryProfile, setSecretaryProfile] = useState<SecretaryProfile | null>(null);
+  const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [typedMessage, setTypedMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -22,26 +24,35 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
   const audioChunksRef = useRef<Blob[]>([]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const audioPlayingRef = useRef<HTMLAudioElement | null>(null);
+  const didStartRef = useRef(false);
 
   // Auto scroll chat list
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchSecretaryProfile(call.receiverEmail)
+      .then((profile) => {
+        if (!cancelled) setSecretaryProfile(profile);
+      })
+      .catch((error) => console.warn("Secretary profile unavailable, using defaults:", error))
+      .finally(() => {
+        if (!cancelled) setIsProfileLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [call.receiverEmail]);
+
   // Trigger initial greeting voice with text
   useEffect(() => {
-    const receiverName = call.receiverEmail.split("@")[0];
-    const greeting = assistantLocale.startsWith("tr")
-      ? `Merhaba, ben ${receiverName} için çalışan Jusur yapay zeka sekreteriyim. Şu anda müsait değil. Mesajınızı alabilirim; adınızı ve arama nedeninizi söyler misiniz?`
-      : `Hello, I am ${receiverName}'s Jusur AI secretary. They are currently unavailable. I can take a message; what is your name and why are you calling?`;
-    
-    setMessages([{
-      role: "assistant",
-      content: greeting,
-      timestamp: Date.now()
-    }]);
+    if (!isProfileLoaded || didStartRef.current) return;
+    didStartRef.current = true;
 
-    speakResponse(greeting, null);
+    void processAgentTurn(null, null);
 
     // Update firestore status to note AI Secretary is active
     updateCallDoc(call.id, { status: "ai_secretary_active" });
@@ -53,15 +64,26 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
         audioPlayingRef.current.pause();
       }
     };
-  }, [assistantLocale, call.id, call.receiverEmail]);
+  }, [assistantLocale, call.id, call.receiverEmail, isProfileLoaded, secretaryProfile]);
 
   // Browser Text-To-Speech / Audio player helper
-  const speakResponse = (text: string, extAudioBase64: string | null) => {
+  const speakResponse = (text: string, extAudioBase64: string | null, audioMimeType = "audio/wav") => {
     // Stop any physical playing audio
     if (audioPlayingRef.current) {
       audioPlayingRef.current.pause();
     }
     window.speechSynthesis?.cancel();
+
+    if (extAudioBase64) {
+      const audio = new Audio(`data:${audioMimeType};base64,${extAudioBase64}`);
+      audioPlayingRef.current = audio;
+      audio.play().catch((error) => {
+        console.warn("Native AI audio playback failed, using browser speech fallback:", error);
+        fallbackTTS(text);
+      });
+      return;
+    }
+
     fallbackTTS(text);
   };
 
@@ -188,7 +210,8 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
           callerText: textContent,
           receiverName: call.receiverEmail.split("@")[0],
           history: apiHistory,
-          responseLanguage: assistantLocale.startsWith("tr") ? "Turkish" : "English"
+          responseLanguage: secretaryProfile?.responseLanguage || (assistantLocale.startsWith("tr") ? "Turkish" : "English"),
+          secretaryProfile
         })
       });
 
@@ -210,7 +233,7 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
         setIntentSummary(data.currentIntentSummary);
       }
 
-      speakResponse(data.speakText, data.audioBase64);
+      speakResponse(data.speakText, data.audioBase64, data.audioMimeType || "audio/wav");
 
     } catch (err: any) {
       console.error("Secretary API turn failure:", err);
@@ -234,7 +257,8 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
         callerEmail: call.callerEmail,
         receiverEmail: call.receiverEmail,
         audioTranscript: transcript,
-        aiSummary: intentSummary
+        aiSummary: intentSummary,
+        secretaryProfile: secretaryProfile || undefined
       });
 
       // Clear the call signalling document

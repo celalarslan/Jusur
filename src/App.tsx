@@ -20,7 +20,8 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   Bell,
-  ShieldCheck
+  ShieldCheck,
+  Download
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -36,7 +37,8 @@ import {
   deleteCallDoc, 
   listenIncomingCalls, 
   listenSingleCall,
-  fetchVoicemails
+  fetchVoicemails,
+  saveSecretaryProfile
 } from "./firebase";
 import { fetchGoogleContacts } from "./contacts";
 import { enableIncomingCallNotifications } from "./notifications";
@@ -61,6 +63,8 @@ const LOCAL_DEMO_USER = {
   displayName: "Local Demo",
   photoURL: null
 } as FirebaseUser;
+
+const ANDROID_APK_URL = "https://github.com/celalarslan/Jusur/releases/download/android-latest/Jusur-Android.apk";
 
 const QUICK_LANGUAGES = [
   { value: "auto", label: "Auto" },
@@ -94,6 +98,13 @@ export default function App() {
   const [myLanguage, setMyLanguage] = useState("auto");
   const [partnerLanguage, setPartnerLanguage] = useState("Turkish (Türkçe)");
   const [preferredVoice, setPreferredVoice] = useState<"Aoede" | "Fenrir">("Aoede");
+  const [secretaryRepresentsName, setSecretaryRepresentsName] = useState("");
+  const [secretaryLanguage, setSecretaryLanguage] = useState("Turkish");
+  const [secretaryVoice, setSecretaryVoice] = useState<"Kore" | "Puck" | "Aoede" | "Fenrir">("Kore");
+  const [secretaryInstructions, setSecretaryInstructions] = useState(
+    "Arayanı kısa ve nazik karşıla. Kimin aradığını, telefon/e-posta bilgisini ve arama nedenini öğren. Acilse açıkça belirtmesini iste. Uygun bir dille mesajı ileteceğini söyle."
+  );
+  const [secretaryProfileStatus, setSecretaryProfileStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [notificationStatus, setNotificationStatus] = useState<"idle" | "enabling" | "enabled" | "error">("idle");
 
   // Phonebook contacts
@@ -151,6 +162,12 @@ export default function App() {
       setAuthMode("email");
     }
   }, [authMode, isNativeApp]);
+
+  useEffect(() => {
+    if (user && !secretaryRepresentsName.trim()) {
+      setSecretaryRepresentsName(user.displayName || user.email?.split("@")[0] || "Jusur user");
+    }
+  }, [secretaryRepresentsName, user]);
 
   // 2. Fetch Contacts and Voicemails when authenticated
   useEffect(() => {
@@ -311,6 +328,23 @@ export default function App() {
       console.error("Notification registration failed:", error);
       setNotificationStatus("error");
       alert(error instanceof Error ? error.message : "Could not enable notifications.");
+    }
+  };
+
+  const handleSaveSecretaryProfile = async () => {
+    setSecretaryProfileStatus("saving");
+    try {
+      await saveSecretaryProfile({
+        representsName: secretaryRepresentsName.trim() || user?.displayName || user?.email?.split("@")[0] || "Jusur user",
+        responseLanguage: secretaryLanguage,
+        voiceName: secretaryVoice,
+        instructions: secretaryInstructions.trim()
+      });
+      setSecretaryProfileStatus("saved");
+    } catch (error) {
+      console.error("Secretary profile save failed:", error);
+      setSecretaryProfileStatus("error");
+      alert(error instanceof Error ? error.message : "Could not save secretary profile.");
     }
   };
 
@@ -760,6 +794,16 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-2">
+              {!isNativeApp && (
+                <a
+                  href={ANDROID_APK_URL}
+                  className="h-10 w-10 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-100 flex items-center justify-center active:scale-95 transition"
+                  title="Download Android APK"
+                  aria-label="Download Android APK"
+                >
+                  <Download className="w-4 h-4" />
+                </a>
+              )}
               <button
                 type="button"
                 onClick={reloadVoicemails}
@@ -953,6 +997,19 @@ export default function App() {
                   </div>
                 </div>
 
+                {!isNativeApp && (
+                  <a
+                    href={ANDROID_APK_URL}
+                    className="rounded-[26px] border border-emerald-300/20 bg-emerald-300/10 p-4 flex items-center justify-between gap-3 active:scale-[0.99] transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-black text-emerald-100">Android APK</p>
+                      <p className="text-xs text-emerald-100/60 truncate">Jusur-Android.apk</p>
+                    </div>
+                    <Download className="w-5 h-5 text-emerald-100 shrink-0" />
+                  </a>
+                )}
+
                 <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4 space-y-3">
                   <div className="flex items-center gap-2 text-cyan-100 font-black text-sm">
                     <SlidersHorizontal className="w-4 h-4" />
@@ -970,6 +1027,58 @@ export default function App() {
                     <button type="button" onClick={() => setPreferredVoice("Aoede")} className={`h-12 rounded-2xl border text-xs font-black ${preferredVoice === "Aoede" ? "bg-cyan-300 text-slate-950 border-cyan-300" : "bg-slate-950 border-white/10 text-slate-300"}`}>{t("female")}</button>
                     <button type="button" onClick={() => setPreferredVoice("Fenrir")} className={`h-12 rounded-2xl border text-xs font-black ${preferredVoice === "Fenrir" ? "bg-violet-300 text-slate-950 border-violet-300" : "bg-slate-950 border-white/10 text-slate-300"}`}>{t("male")}</button>
                   </div>
+                </div>
+
+                <div className="rounded-[26px] border border-violet-300/15 bg-violet-300/[0.055] p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-violet-100 font-black text-sm">
+                    <Voicemail className="w-4 h-4" />
+                    AI Secretary behavior
+                  </div>
+                  <input
+                    value={secretaryRepresentsName}
+                    onChange={(event) => setSecretaryRepresentsName(event.target.value)}
+                    placeholder="Who does the secretary represent?"
+                    className="w-full h-12 rounded-2xl bg-slate-950 border border-white/10 px-3 text-xs font-bold outline-none focus:border-violet-300/40"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={secretaryLanguage}
+                      onChange={(event) => setSecretaryLanguage(event.target.value)}
+                      className="h-12 rounded-2xl bg-slate-950 border border-white/10 px-3 text-xs font-bold outline-none"
+                    >
+                      <option value="Turkish">Türkçe</option>
+                      <option value="English">English</option>
+                      <option value="Arabic">Arabic</option>
+                      <option value="French">French</option>
+                      <option value="German">German</option>
+                    </select>
+                    <select
+                      value={secretaryVoice}
+                      onChange={(event) => setSecretaryVoice(event.target.value as "Kore" | "Puck" | "Aoede" | "Fenrir")}
+                      className="h-12 rounded-2xl bg-slate-950 border border-white/10 px-3 text-xs font-bold outline-none"
+                    >
+                      <option value="Kore">Natural female</option>
+                      <option value="Puck">Natural male</option>
+                      <option value="Aoede">Bright female</option>
+                      <option value="Fenrir">Deep male</option>
+                    </select>
+                  </div>
+                  <textarea
+                    value={secretaryInstructions}
+                    onChange={(event) => setSecretaryInstructions(event.target.value)}
+                    rows={5}
+                    placeholder="How should the AI secretary behave, what should it say, what should it collect?"
+                    className="w-full rounded-2xl bg-slate-950 border border-white/10 px-3 py-3 text-xs font-semibold leading-relaxed outline-none resize-none focus:border-violet-300/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveSecretaryProfile}
+                    disabled={secretaryProfileStatus === "saving"}
+                    className="w-full h-12 rounded-2xl bg-violet-300 text-slate-950 text-xs font-black flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {secretaryProfileStatus === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {secretaryProfileStatus === "saved" ? "Secretary saved" : "Save AI secretary"}
+                  </button>
                 </div>
 
                 <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4">

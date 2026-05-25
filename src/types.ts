@@ -26,6 +26,7 @@ export interface VoicemailDocument {
   receiverEmail: string;
   audioTranscript: string;
   aiSummary: string;
+  secretaryProfile?: SecretaryProfile;
   timestamp: any;
 }
 
@@ -33,4 +34,12 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+}
+
+export interface SecretaryProfile {
+  ownerEmail: string;
+  representsName: string;
+  responseLanguage: string;
+  voiceName: "Kore" | "Puck" | "Aoede" | "Fenrir";
+  instructions: string;
 }
