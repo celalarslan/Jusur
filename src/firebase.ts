@@ -28,7 +28,7 @@ import {
   Timestamp
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
-import { CallDocument, SecretaryProfile, VoicemailDocument } from "./types";
+import { CallDocument, CallLogDocument, SecretaryProfile, VoicemailDocument } from "./types";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -275,6 +275,28 @@ export const saveNotificationToken = async (token: string, platform: "web" | "an
   }, { merge: true });
 };
 
+export const registerPublicUser = async (currentUser: User): Promise<void> => {
+  if (!currentUser.email) return;
+
+  await setDoc(doc(db, "publicUsers", currentUser.email), {
+    email: currentUser.email,
+    displayName: currentUser.displayName || currentUser.email.split("@")[0],
+    photoURL: currentUser.photoURL || "",
+    uid: currentUser.uid,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+};
+
+export const fetchRegisteredUserEmails = async (): Promise<Set<string>> => {
+  try {
+    const snap = await getDocs(collection(db, "publicUsers"));
+    return new Set(snap.docs.map((docSnap) => String(docSnap.data().email || docSnap.id).toLowerCase()));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, "publicUsers");
+    return new Set();
+  }
+};
+
 const profileDocIdFromEmail = (email: string) => email.trim();
 
 export const saveSecretaryProfile = async (profile: Omit<SecretaryProfile, "ownerEmail">): Promise<void> => {
@@ -319,6 +341,57 @@ export const createCallDoc = async (callData: Omit<CallDocument, "id" | "timesta
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, pathOfCol);
     return "";
+  }
+};
+
+export const createCallLogDoc = async (logData: Omit<CallLogDocument, "id" | "timestamp">): Promise<string> => {
+  const pathOfCol = "callLogs";
+  try {
+    const docRef = await addDoc(collection(db, pathOfCol), {
+      ...logData,
+      timestamp: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, pathOfCol);
+    return "";
+  }
+};
+
+export const updateCallLogDoc = async (logId: string, updates: Partial<Omit<CallLogDocument, "id" | "timestamp">>): Promise<void> => {
+  const pathOfDoc = `callLogs/${logId}`;
+  try {
+    await updateDoc(doc(db, "callLogs", logId), updates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, pathOfDoc);
+  }
+};
+
+export const fetchCallLogs = async (email: string): Promise<CallLogDocument[]> => {
+  const pathOfCol = "callLogs";
+  try {
+    const outgoingQ = query(
+      collection(db, "callLogs"),
+      where("callerEmail", "==", email),
+      orderBy("timestamp", "desc")
+    );
+    const incomingQ = query(
+      collection(db, "callLogs"),
+      where("receiverEmail", "==", email),
+      orderBy("timestamp", "desc")
+    );
+    const [outgoingSnap, incomingSnap] = await Promise.all([getDocs(outgoingQ), getDocs(incomingQ)]);
+    const byId = new Map<string, CallLogDocument>();
+    outgoingSnap.forEach((docSnap) => byId.set(docSnap.id, { id: docSnap.id, ...docSnap.data(), direction: "outgoing" } as CallLogDocument));
+    incomingSnap.forEach((docSnap) => byId.set(docSnap.id, { id: docSnap.id, ...docSnap.data(), direction: "incoming" } as CallLogDocument));
+    return Array.from(byId.values()).sort((a, b) => {
+      const aTime = a.timestamp?.toMillis?.() || 0;
+      const bTime = b.timestamp?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, pathOfCol);
+    return [];
   }
 };
 

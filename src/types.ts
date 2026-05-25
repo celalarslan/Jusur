@@ -3,6 +3,7 @@ export interface Contact {
   name: string;
   email: string;
   photoUrl?: string;
+  isRegistered?: boolean;
 }
 
 export interface CallDocument {
@@ -34,6 +35,20 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+}
+
+export interface CallLogDocument {
+  id: string;
+  callerId: string;
+  callerName: string;
+  callerEmail: string;
+  receiverEmail: string;
+  receiverName?: string;
+  mode: "audio" | "video";
+  direction?: "outgoing" | "incoming";
+  status: "ringing" | "answered" | "missed" | "ended" | "secretary";
+  timestamp: any;
+  endedAt?: any;
 }
 
 export interface SecretaryProfile {

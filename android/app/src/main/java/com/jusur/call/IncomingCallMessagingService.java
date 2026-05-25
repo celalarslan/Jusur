@@ -9,6 +9,7 @@ import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 
@@ -35,6 +36,7 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
 
     private void showIncomingCall(String callerName) {
         createChannel();
+        wakeScreenBriefly();
 
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -63,6 +65,19 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
 
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.notify(1001, builder.build());
+    }
+
+    private void wakeScreenBriefly() {
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (powerManager == null) {
+            return;
+        }
+
+        PowerManager.WakeLock wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "Jusur:IncomingCallWakeLock"
+        );
+        wakeLock.acquire(10000);
     }
 
     private void createChannel() {

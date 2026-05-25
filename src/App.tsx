@@ -12,6 +12,7 @@ import {
   LogOut, 
   Voicemail, 
   PhoneCall,
+  History,
   Loader2,
   Video,
   MessageCircle,
@@ -25,7 +26,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-import { Contact, CallDocument, VoicemailDocument } from "./types";
+import { Contact, CallDocument, CallLogDocument, VoicemailDocument } from "./types";
 import { 
   googleSignIn, 
   emailPasswordSignIn,
@@ -33,12 +34,17 @@ import {
   initAuth, 
   logout, 
   createCallDoc, 
+  createCallLogDoc,
   updateCallDoc, 
+  updateCallLogDoc,
   deleteCallDoc, 
   listenIncomingCalls, 
   listenSingleCall,
   fetchVoicemails,
-  saveSecretaryProfile
+  saveSecretaryProfile,
+  fetchCallLogs,
+  fetchRegisteredUserEmails,
+  registerPublicUser
 } from "./firebase";
 import { fetchGoogleContacts } from "./contacts";
 import { enableIncomingCallNotifications } from "./notifications";
@@ -115,10 +121,15 @@ export default function App() {
   // Voicemails state
   const [voicemails, setVoicemails] = useState<VoicemailDocument[]>([]);
   const [isLoadingVoicemails, setIsLoadingVoicemails] = useState(false);
+  const [callLogs, setCallLogs] = useState<CallLogDocument[]>([]);
+  const [isLoadingCallLogs, setIsLoadingCallLogs] = useState(false);
+  const [registeredEmails, setRegisteredEmails] = useState<Set<string>>(new Set());
+  const [permissionStatus, setPermissionStatus] = useState<"idle" | "requesting" | "ready" | "error">("idle");
 
   // Active Outgoing Call (Dialer) states
   const [dialState, setDialState] = useState<"idle" | "calling" | "secretary" | "active_call">("idle");
   const [outgoingCall, setOutgoingCall] = useState<CallDocument | null>(null);
+  const [outgoingCallLogId, setOutgoingCallLogId] = useState<string | null>(null);
   const [receiverName, setReceiverName] = useState("");
   const [receiverEmail, setReceiverEmail] = useState("");
 
@@ -169,6 +180,12 @@ export default function App() {
     }
   }, [secretaryRepresentsName, user]);
 
+  useEffect(() => {
+    if (user && isNativeApp && localStorage.getItem("jusur_media_permissions_checked") !== "1") {
+      requestCallPermissions();
+    }
+  }, [isNativeApp, user]);
+
   // 2. Fetch Contacts and Voicemails when authenticated
   useEffect(() => {
     if (LOCAL_DEMO_MODE && user) {
@@ -184,7 +201,9 @@ export default function App() {
     }
 
     if (user) {
+      registerPublicUser(user).catch((error) => console.warn("Public user registration failed:", error));
       loadGoogleContactsAndVoicemails(false);
+      loadRegisteredUsersAndCallLogs();
       setupIncomingCallListener();
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         enableIncomingCallNotifications()
@@ -194,6 +213,8 @@ export default function App() {
     } else {
       // Clear data if logged out
       setContacts([]);
+      setCallLogs([]);
+      setRegisteredEmails(new Set());
       setVoicemails([]);
       if (incomingCallsUnsubscribeRef.current) {
         incomingCallsUnsubscribeRef.current();
@@ -221,7 +242,7 @@ export default function App() {
 
       if (tokenForGoogleApis) {
         const contactList = await fetchGoogleContacts(tokenForGoogleApis);
-        setContacts(contactList);
+        setContacts(markRegisteredContacts(contactList));
       } else {
         setContacts([]);
       }
@@ -237,6 +258,30 @@ export default function App() {
     }
   };
 
+  const markRegisteredContacts = (contactList: Contact[], registry = registeredEmails) =>
+    contactList.map((contact) => ({
+      ...contact,
+      isRegistered: registry.has(contact.email.toLowerCase())
+    }));
+
+  const loadRegisteredUsersAndCallLogs = async () => {
+    if (!user?.email) return;
+    setIsLoadingCallLogs(true);
+    try {
+      const [registry, logs] = await Promise.all([
+        fetchRegisteredUserEmails(),
+        fetchCallLogs(user.email)
+      ]);
+      setRegisteredEmails(registry);
+      setContacts((previous) => markRegisteredContacts(previous, registry));
+      setCallLogs(logs);
+    } catch (error) {
+      console.error("Failed loading registered users or call logs:", error);
+    } finally {
+      setIsLoadingCallLogs(false);
+    }
+  };
+
   // Quick refresh helper for the voicemails inbox
   const reloadVoicemails = async () => {
     if (!user || !user.email) return;
@@ -248,6 +293,20 @@ export default function App() {
       console.error("Failed loading voicemails:", e);
     } finally {
       setIsLoadingVoicemails(false);
+    }
+  };
+
+  const requestCallPermissions = async () => {
+    setPermissionStatus("requesting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      stream.getTracks().forEach((track) => track.stop());
+      setPermissionStatus("ready");
+      localStorage.setItem("jusur_media_permissions_checked", "1");
+    } catch (error) {
+      console.error("Media permission request failed:", error);
+      setPermissionStatus("error");
+      alert("Camera/microphone permission is required for calls. Open Android App info > Permissions and allow Camera and Microphone.");
     }
   };
 
@@ -424,6 +483,18 @@ export default function App() {
       }
 
       // Create Call signaling document with 'ringing' status
+      const callLogId = await createCallLogDoc({
+        callerId: user.uid,
+        callerName: user.displayName || user.email.split("@")[0],
+        callerEmail: user.email,
+        receiverEmail: contact.email,
+        receiverName: contact.name,
+        mode,
+        direction: "outgoing",
+        status: "ringing"
+      });
+      setOutgoingCallLogId(callLogId);
+
       const callDocId = await createCallDoc({
         callerId: user.uid,
         callerName: user.displayName || user.email.split("@")[0],
@@ -455,10 +526,10 @@ export default function App() {
       setOutgoingCall(initialCallObj);
 
       // Listen for updates on this single call doc
-      subscribeToOutgoingCall(callDocId, meetingUri, contact.name);
+      subscribeToOutgoingCall(callDocId, meetingUri, contact.name, callLogId);
 
       // Set up 15-second timeout for AI Secretary activation
-      setupSecretaryCallTimeout(callDocId, initialCallObj);
+      setupSecretaryCallTimeout(callDocId, callLogId);
 
     } catch (err: any) {
       console.error("Calling origin step failure:", err);
@@ -467,7 +538,7 @@ export default function App() {
     }
   };
 
-  const subscribeToOutgoingCall = (callId: string, meetUri: string, targetName: string) => {
+  const subscribeToOutgoingCall = (callId: string, meetUri: string, targetName: string, callLogId?: string) => {
     if (singleCallUnsubscribeRef.current) {
       singleCallUnsubscribeRef.current();
     }
@@ -486,11 +557,17 @@ export default function App() {
         if (callDoc.status === "answered") {
           console.log("Receiver answered call! Transitioning to Active Call Screen...");
           clearSecretaryTimeout();
+          if (callLogId) {
+            updateCallLogDoc(callLogId, { status: "answered" }).catch((error) => console.warn("Call log update failed:", error));
+          }
           
           setOutgoingCall(callDoc);
           setDialState("active_call");
         } else if (callDoc.status === "missed" || callDoc.status === "ended") {
           console.log("Call was declined or missed by the recipient.");
+          if (callLogId) {
+            updateCallLogDoc(callLogId, { status: callDoc.status }).catch((error) => console.warn("Call log update failed:", error));
+          }
           handleCancelOutgoing();
           alert(`${targetName} is busy or declined the call.`);
         }
@@ -502,12 +579,15 @@ export default function App() {
   };
 
   // 15 seconds timer to switch calling to AI Secretary
-  const setupSecretaryCallTimeout = (callId: string, callDoc: CallDocument) => {
+  const setupSecretaryCallTimeout = (callId: string, callLogId?: string) => {
     clearSecretaryTimeout();
     timeoutRef.current = setTimeout(async () => {
       console.log("No answer in 15 seconds. Upgrading call status to AI Secretary...");
       try {
         await updateCallDoc(callId, { status: "ai_secretary_active" });
+        if (callLogId) {
+          await updateCallLogDoc(callLogId, { status: "secretary" });
+        }
         setDialState("secretary");
       } catch (e) {
         console.error("Error activating secretary state in firestore:", e);
@@ -535,6 +615,9 @@ export default function App() {
     if (outgoingCall) {
       try {
         await updateCallDoc(outgoingCall.id, { status: "ended" });
+        if (outgoingCallLogId) {
+          await updateCallLogDoc(outgoingCallLogId, { status: "ended" });
+        }
         await deleteCallDoc(outgoingCall.id);
       } catch (e) {
         console.error("Cleanup call failure:", e);
@@ -543,6 +626,8 @@ export default function App() {
 
     setDialState("idle");
     setOutgoingCall(null);
+    setOutgoingCallLogId(null);
+    loadRegisteredUsersAndCallLogs();
   };
 
   // 6. Handle Incoming Call state selections (Receiver flow)
@@ -552,6 +637,16 @@ export default function App() {
     try {
       console.log("Accepting incoming call, updating Firestore...");
       await updateCallDoc(callId, { status: "answered" });
+      await createCallLogDoc({
+        callerId: incomingCall.callerId,
+        callerName: incomingCall.callerName,
+        callerEmail: incomingCall.callerEmail,
+        receiverEmail: incomingCall.receiverEmail,
+        receiverName: user?.displayName || user?.email?.split("@")[0] || "Jusur user",
+        mode: callMode,
+        direction: "incoming",
+        status: "answered"
+      });
       
       setReceiverName(incomingCall.callerName);
       setReceiverEmail(incomingCall.callerEmail);
@@ -586,6 +681,16 @@ export default function App() {
     try {
       console.log("Declining incoming call, updating status...");
       await updateCallDoc(incomingCall.id, { status: "missed" });
+      await createCallLogDoc({
+        callerId: incomingCall.callerId,
+        callerName: incomingCall.callerName,
+        callerEmail: incomingCall.callerEmail,
+        receiverEmail: incomingCall.receiverEmail,
+        receiverName: user?.displayName || user?.email?.split("@")[0] || "Jusur user",
+        mode: callMode,
+        direction: "incoming",
+        status: "missed"
+      });
       setIncomingCall(null);
     } catch (e) {
       console.error("Decline call error:", e);
@@ -596,7 +701,9 @@ export default function App() {
   const handleFinishSecretary = () => {
     setDialState("idle");
     setOutgoingCall(null);
+    setOutgoingCallLogId(null);
     reloadVoicemails(); // Refresh local list to render newly left voicemail!
+    loadRegisteredUsersAndCallLogs();
   };
 
   const handleKeypadPress = (val: string) => {
@@ -607,10 +714,15 @@ export default function App() {
     const input = manualDialInput.trim();
     if (!input) return;
     const isEmail = input.includes("@");
+    if (isEmail && registeredEmails.size > 0 && !registeredEmails.has(input.toLowerCase())) {
+      alert("This email is not registered on Jusur yet. Ask the person to create an account first.");
+      return;
+    }
     const manualContact: Contact = {
       name: isEmail ? input.split("@")[0] : `Special Dial`,
       email: isEmail ? input : `${input}@manual-connect.com`,
-      resourceName: `keypad-dial-${Date.now()}`
+      resourceName: `keypad-dial-${Date.now()}`,
+      isRegistered: isEmail ? registeredEmails.has(input.toLowerCase()) : false
     };
     handleInitiateCall(manualContact, mode);
   };
@@ -930,7 +1042,11 @@ export default function App() {
                     filteredContacts.map((contact) => (
                       <div
                         key={contact.resourceName}
-                        className="rounded-[24px] border border-white/10 bg-white/[0.045] p-3 flex items-center gap-3"
+                        className={`rounded-[24px] border p-3 flex items-center gap-3 transition ${
+                          contact.isRegistered
+                            ? "border-cyan-300/20 bg-white/[0.07]"
+                            : "border-white/5 bg-white/[0.025] opacity-55 grayscale"
+                        }`}
                       >
                         {contact.photoUrl ? (
                           <img referrerPolicy="no-referrer" src={contact.photoUrl} alt={contact.name} className="w-12 h-12 rounded-2xl object-cover shrink-0" />
@@ -941,11 +1057,14 @@ export default function App() {
                         )}
                         <div className="min-w-0 flex-1">
                           <h3 className="text-sm font-black truncate">{contact.name}</h3>
-                          <p className="text-[11px] text-slate-500 truncate">{contact.email}</p>
+                          <p className="text-[11px] text-slate-500 truncate">
+                            {contact.email} {contact.isRegistered ? "· Jusur" : "· not joined"}
+                          </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleInitiateCall(contact, "audio")}
+                          disabled={!contact.isRegistered}
                           className="h-10 w-10 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition"
                           title="Audio call"
                         >
@@ -954,6 +1073,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => handleInitiateCall(contact, "video")}
+                          disabled={!contact.isRegistered}
                           className="h-10 w-10 rounded-2xl bg-blue-400 text-white flex items-center justify-center active:scale-95 transition"
                           title="Video call"
                         >
@@ -1029,6 +1149,25 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="rounded-[26px] border border-cyan-300/15 bg-cyan-300/[0.045] p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-cyan-100 font-black text-sm">
+                    <Video className="w-4 h-4" />
+                    Camera & microphone
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-slate-400">
+                    Android asks once at runtime. Allow both permissions here before the first real call.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={requestCallPermissions}
+                    disabled={permissionStatus === "requesting" || permissionStatus === "ready"}
+                    className="w-full h-12 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-100 text-xs font-black flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {permissionStatus === "requesting" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                    {permissionStatus === "ready" ? "Camera and mic ready" : "Allow camera and mic"}
+                  </button>
+                </div>
+
                 <div className="rounded-[26px] border border-violet-300/15 bg-violet-300/[0.055] p-4 space-y-3">
                   <div className="flex items-center gap-2 text-violet-100 font-black text-sm">
                     <Voicemail className="w-4 h-4" />
@@ -1079,6 +1218,37 @@ export default function App() {
                     {secretaryProfileStatus === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                     {secretaryProfileStatus === "saved" ? "Secretary saved" : "Save AI secretary"}
                   </button>
+                </div>
+
+                <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 text-cyan-100 font-black text-sm">
+                      <History className="w-4 h-4" />
+                      Call history
+                    </div>
+                    <button type="button" onClick={loadRegisteredUsersAndCallLogs} className="text-[11px] font-black text-cyan-200">Refresh</button>
+                  </div>
+                  <div className="space-y-2 max-h-56 overflow-y-auto">
+                    {isLoadingCallLogs ? (
+                      <div className="py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-cyan-200" /></div>
+                    ) : callLogs.length === 0 ? (
+                      <div className="rounded-2xl border border-white/10 bg-slate-950 p-4 text-xs text-slate-500 font-semibold text-center">No calls yet</div>
+                    ) : (
+                      callLogs.map((log) => {
+                        const otherName = log.direction === "incoming" ? log.callerName : (log.receiverName || log.receiverEmail);
+                        const formattedDate = log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "";
+                        return (
+                          <div key={log.id} className="rounded-2xl border border-white/10 bg-slate-950 p-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black truncate">{otherName}</p>
+                              <p className="text-[10px] text-slate-500 truncate">{log.direction || "call"} · {log.mode} · {log.status}</p>
+                            </div>
+                            <span className="text-[9px] text-slate-600 shrink-0">{formattedDate.split(",")[0]}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
 
                 <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4">
