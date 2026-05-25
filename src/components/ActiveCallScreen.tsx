@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, PhoneOff, Globe, Video, VideoOff, Loader2, Send, MessageCircle, UserPlus, Users } from "lucide-react";
+import { Mic, MicOff, PhoneOff, Globe, Video, VideoOff, Loader2, Send, MessageCircle } from "lucide-react";
 import { CallDocument, CallMessage } from "../types";
 import { updateCallDoc, deleteCallDoc } from "../firebase";
 
@@ -11,7 +11,6 @@ interface ActiveCallScreenProps {
   initialPartnerLanguage?: string;
   initialVoice?: string;
   initialVideoEnabled?: boolean;
-  onInviteParticipant?: (email: string) => Promise<void>;
 }
 
 // Supported languages list natively by Gemini
@@ -40,8 +39,7 @@ export function ActiveCallScreen({
   initialMyLanguage = "auto",
   initialPartnerLanguage = "Spanish (Español)",
   initialVoice = "Aoede",
-  initialVideoEnabled = true,
-  onInviteParticipant
+  initialVideoEnabled = true
 }: ActiveCallScreenProps) {
   const isCaller = call.callerEmail === currentUserEmail;
   const isLocalDemoCall = call.meetUri === "jusur://local-demo";
@@ -54,11 +52,8 @@ export function ActiveCallScreen({
   const [selectedVoice, setSelectedVoice] = useState(initialVoice);
   const [transcripts, setTranscripts] = useState<{ sender: string; text: string; id: number }[]>([]);
   const [messageText, setMessageText] = useState("");
-  const [activeTray, setActiveTray] = useState<"translate" | "messages" | "people">("translate");
+  const [activeTray, setActiveTray] = useState<"translate" | "messages">("translate");
   const [pipPosition, setPipPosition] = useState({ x: 18, y: 96 });
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteStatus, setInviteStatus] = useState<string | null>(null);
-  const [isInviting, setIsInviting] = useState(false);
 
   // WebRTC & Audio States
   const [micMuted, setMicMuted] = useState(false);
@@ -590,25 +585,6 @@ export function ActiveCallScreen({
     }
   };
 
-  const inviteParticipant = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!onInviteParticipant || isInviting) return;
-    const email = inviteEmail.trim();
-    if (!email) return;
-
-    setIsInviting(true);
-    setInviteStatus(null);
-    try {
-      await onInviteParticipant(email);
-      setInviteEmail("");
-      setInviteStatus("Participant added to the call roster. Group media bridge setup is required for live multi-party audio/video.");
-    } catch (error: any) {
-      setInviteStatus(error?.message || "Participant could not be added.");
-    } finally {
-      setIsInviting(false);
-    }
-  };
-
   const handlePipPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     dragRef.current = {
       active: true,
@@ -632,12 +608,6 @@ export function ActiveCallScreen({
   };
 
   const callMessages = call.messages || [];
-  const callParticipants = Array.from(new Set([
-    call.callerEmail,
-    call.receiverEmail,
-    ...(call.participants || []),
-    ...(call.invitedParticipants || [])
-  ].filter(Boolean).map((email) => email.toLowerCase())));
 
   return (
     <div className="fixed inset-0 z-[80] bg-black text-neutral-100 font-sans overflow-hidden">
@@ -696,7 +666,7 @@ export function ActiveCallScreen({
       )}
 
       <div className="absolute inset-x-3 bottom-24 z-20 rounded-[28px] border border-white/10 bg-slate-950/88 backdrop-blur-xl shadow-[0_18px_70px_rgba(0,0,0,0.55)] overflow-hidden">
-        <div className="grid grid-cols-3 p-1 border-b border-white/10">
+        <div className="grid grid-cols-2 p-1 border-b border-white/10">
           <button
             type="button"
             onClick={() => setActiveTray("translate")}
@@ -712,14 +682,6 @@ export function ActiveCallScreen({
           >
             <MessageCircle className="w-4 h-4" />
             Messages
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTray("people")}
-            className={`h-10 rounded-2xl text-xs font-black flex items-center justify-center gap-2 ${activeTray === "people" ? "bg-cyan-300 text-slate-950" : "text-slate-400"}`}
-          >
-            <Users className="w-4 h-4" />
-            People
           </button>
         </div>
 
@@ -763,7 +725,7 @@ export function ActiveCallScreen({
               <div ref={transcriptEndRef} />
             </div>
           </div>
-        ) : activeTray === "messages" ? (
+        ) : (
           <div className="p-3 space-y-3">
             <div className="max-h-36 overflow-y-auto space-y-2">
               {callMessages.length === 0 ? (
@@ -793,40 +755,6 @@ export function ActiveCallScreen({
                 <Send className="w-4 h-4" />
               </button>
             </form>
-          </div>
-        ) : (
-          <div className="p-3 space-y-3">
-            <div className="max-h-28 overflow-y-auto space-y-2">
-              {callParticipants.map((email) => (
-                <div key={email} className="rounded-2xl border border-white/10 bg-black/40 px-3 py-2 flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate text-[11px] font-bold text-slate-200">{email}</span>
-                  <span className="text-[9px] font-black uppercase text-cyan-200">{email === currentUserEmail.toLowerCase() ? "You" : "Member"}</span>
-                </div>
-              ))}
-            </div>
-            <form onSubmit={inviteParticipant} className="flex items-center gap-2">
-              <input
-                value={inviteEmail}
-                onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="Add participant email..."
-                dir="auto"
-                inputMode="email"
-                autoCapitalize="none"
-                autoComplete="email"
-                enterKeyHint="send"
-                className="min-w-0 flex-1 h-11 rounded-2xl bg-black/60 border border-white/10 px-4 text-sm font-semibold outline-none focus:border-cyan-300/40"
-              />
-              <button
-                type="submit"
-                disabled={isInviting || !onInviteParticipant}
-                className="h-11 w-11 rounded-2xl bg-cyan-300 text-slate-950 flex items-center justify-center disabled:opacity-50"
-              >
-                {isInviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-              </button>
-            </form>
-            {inviteStatus && (
-              <p className="text-[10px] leading-relaxed text-slate-400 px-1">{inviteStatus}</p>
-            )}
           </div>
         )}
       </div>

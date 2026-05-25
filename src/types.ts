@@ -17,9 +17,6 @@ export interface CallDocument {
   timestamp: any; // Firestore serverTimestamp
   callerSignal?: string;
   receiverSignal?: string;
-  conferenceId?: string;
-  participants?: string[];
-  invitedParticipants?: string[];
   messages?: CallMessage[];
 }
 

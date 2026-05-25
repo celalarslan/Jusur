@@ -78,10 +78,6 @@ const LOCAL_DEMO_USER = {
 
 const ANDROID_APK_URL = "https://github.com/celalarslan/Jusur/releases/download/android-latest/Jusur-Android.apk";
 const CALL_RING_SECONDS = 45;
-const createConferenceId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `conf-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const QUICK_LANGUAGES = [
   { value: "auto", label: "Auto" },
@@ -460,7 +456,6 @@ export default function App() {
 
     try {
       if (LOCAL_DEMO_MODE) {
-        const demoConferenceId = createConferenceId();
         const demoCall: CallDocument = {
           id: `local-demo-${Date.now()}`,
           callerId: user.uid,
@@ -469,9 +464,6 @@ export default function App() {
           receiverEmail: contact.email,
           meetUri: "jusur://local-demo",
           status: "answered",
-          conferenceId: demoConferenceId,
-          participants: [user.email, contact.email],
-          invitedParticipants: [],
           timestamp: null
         };
         setOutgoingCall(demoCall);
@@ -504,9 +496,6 @@ export default function App() {
         }
       }
 
-      const conferenceId = createConferenceId();
-      const participants = Array.from(new Set([user.email, contact.email].map((email) => email.toLowerCase())));
-
       // Create Call signaling document with 'ringing' status
       const callLogId = await createCallLogDoc({
         callerId: user.uid,
@@ -526,10 +515,7 @@ export default function App() {
         callerEmail: user.email,
         receiverEmail: contact.email,
         meetUri: meetingUri,
-        status: "ringing",
-        conferenceId,
-        participants,
-        invitedParticipants: []
+        status: "ringing"
       });
 
       fetch("/api/notify/incoming-call", {
@@ -549,9 +535,6 @@ export default function App() {
         receiverEmail: contact.email,
         meetUri: meetingUri,
         status: "ringing",
-        conferenceId,
-        participants,
-        invitedParticipants: [],
         timestamp: null
       };
       setOutgoingCall(initialCallObj);
@@ -567,39 +550,6 @@ export default function App() {
       alert(`Call failed: ${err.message || "Please check your account connection and try again."}`);
       setDialState("idle");
     }
-  };
-
-  const handleInviteParticipant = async (email: string) => {
-    if (!user?.email || !outgoingCall) {
-      throw new Error("Active call was not found.");
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !normalizedEmail.includes("@")) {
-      throw new Error("Enter a valid email address.");
-    }
-    if (normalizedEmail === user.email.toLowerCase()) {
-      throw new Error("You are already in this call.");
-    }
-
-    const currentParticipants = (outgoingCall.participants || [outgoingCall.callerEmail, outgoingCall.receiverEmail])
-      .filter(Boolean)
-      .map((participant) => participant.toLowerCase());
-    const nextParticipants = Array.from(new Set([...currentParticipants, normalizedEmail]));
-    const nextInvited = Array.from(new Set([...(outgoingCall.invitedParticipants || []), normalizedEmail]));
-
-    await updateCallDoc(outgoingCall.id, {
-      conferenceId: outgoingCall.conferenceId || outgoingCall.id,
-      participants: nextParticipants,
-      invitedParticipants: nextInvited
-    });
-
-    setOutgoingCall({
-      ...outgoingCall,
-      conferenceId: outgoingCall.conferenceId || outgoingCall.id,
-      participants: nextParticipants,
-      invitedParticipants: nextInvited
-    });
   };
 
   const subscribeToOutgoingCall = (callId: string, meetUri: string, targetName: string, callLogId?: string) => {
@@ -1419,7 +1369,6 @@ export default function App() {
                 initialPartnerLanguage={partnerLanguage}
                 initialVoice={preferredVoice}
                 initialVideoEnabled={callMode === "video"}
-                onInviteParticipant={handleInviteParticipant}
               />
             )}
           </div>
