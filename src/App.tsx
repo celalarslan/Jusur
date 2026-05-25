@@ -71,6 +71,7 @@ const LOCAL_DEMO_USER = {
 } as FirebaseUser;
 
 const ANDROID_APK_URL = "https://github.com/celalarslan/Jusur/releases/download/android-latest/Jusur-Android.apk";
+const CALL_RING_SECONDS = 45;
 
 const QUICK_LANGUAGES = [
   { value: "auto", label: "Auto" },
@@ -593,7 +594,7 @@ export default function App() {
         console.error("Error activating secretary state in firestore:", e);
         setDialState("secretary");
       }
-    }, 15000);
+    }, CALL_RING_SECONDS * 1000);
   };
 
   const clearSecretaryTimeout = () => {
@@ -699,6 +700,9 @@ export default function App() {
 
   // Clear session after finishing secretary voicemail recording
   const handleFinishSecretary = () => {
+    if (outgoingCallLogId && dialState === "active_call") {
+      updateCallLogDoc(outgoingCallLogId, { status: "ended" }).catch((error) => console.warn("Call log finish update failed:", error));
+    }
     setDialState("idle");
     setOutgoingCall(null);
     setOutgoingCallLogId(null);
@@ -1013,6 +1017,37 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <History className="w-4 h-4 text-cyan-200" />
+                      <h2 className="text-sm font-black tracking-tight">Recent calls</h2>
+                    </div>
+                    <button type="button" onClick={loadRegisteredUsersAndCallLogs} className="text-[11px] font-black text-cyan-200">Refresh</button>
+                  </div>
+                  {isLoadingCallLogs ? (
+                    <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-cyan-200" /></div>
+                  ) : callLogs.length === 0 ? (
+                    <p className="text-center text-[11px] text-slate-500 font-semibold py-4">No calls recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {callLogs.slice(0, 4).map((log) => {
+                        const otherName = log.direction === "incoming" ? log.callerName : (log.receiverName || log.receiverEmail);
+                        const formattedDate = log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "";
+                        return (
+                          <div key={log.id} className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black truncate">{otherName}</p>
+                              <p className="text-[10px] text-slate-500 truncate">{log.direction || "call"} · {log.mode} · {log.status}</p>
+                            </div>
+                            <span className="text-[9px] text-slate-600 shrink-0">{formattedDate.split(",")[0]}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-base font-black tracking-tight">{t("chats")}</h2>
@@ -1303,7 +1338,7 @@ export default function App() {
             )}
 
             {dialState === "calling" && (
-              <DialerOverlay receiverName={receiverName} receiverEmail={receiverEmail} status={outgoingCall?.status || "ringing"} onCancel={handleCancelOutgoing} timeoutSeconds={15} />
+              <DialerOverlay receiverName={receiverName} receiverEmail={receiverEmail} status={outgoingCall?.status || "ringing"} onCancel={handleCancelOutgoing} timeoutSeconds={CALL_RING_SECONDS} />
             )}
 
             {dialState === "secretary" && outgoingCall && (

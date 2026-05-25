@@ -17,6 +17,7 @@ export interface CallDocument {
   timestamp: any; // Firestore serverTimestamp
   callerSignal?: string;
   receiverSignal?: string;
+  messages?: CallMessage[];
 }
 
 export interface VoicemailDocument {
@@ -34,6 +35,14 @@ export interface VoicemailDocument {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  timestamp: number;
+}
+
+export interface CallMessage {
+  id: string;
+  senderEmail: string;
+  senderName: string;
+  text: string;
   timestamp: number;
 }
 

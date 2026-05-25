@@ -29,6 +29,12 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Cache Android debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: jusur-android-debug-keystore-v1
+
       - name: Install dependencies
         run: npm ci
 

@@ -372,13 +372,11 @@ export const fetchCallLogs = async (email: string): Promise<CallLogDocument[]> =
   try {
     const outgoingQ = query(
       collection(db, "callLogs"),
-      where("callerEmail", "==", email),
-      orderBy("timestamp", "desc")
+      where("callerEmail", "==", email)
     );
     const incomingQ = query(
       collection(db, "callLogs"),
-      where("receiverEmail", "==", email),
-      orderBy("timestamp", "desc")
+      where("receiverEmail", "==", email)
     );
     const [outgoingSnap, incomingSnap] = await Promise.all([getDocs(outgoingQ), getDocs(incomingQ)]);
     const byId = new Map<string, CallLogDocument>();
