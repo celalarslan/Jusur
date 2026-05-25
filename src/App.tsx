@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import { 
   User as FirebaseUser 
 } from "firebase/auth";
@@ -74,6 +75,7 @@ const QUICK_LANGUAGES = [
 export default function App() {
   const locale = getBrowserLocale();
   const t = createTranslator(locale);
+  const isNativeApp = Capacitor.isNativePlatform();
   // Authentication states
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -144,6 +146,12 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (isNativeApp && authMode === "google") {
+      setAuthMode("email");
+    }
+  }, [authMode, isNativeApp]);
+
   // 2. Fetch Contacts and Voicemails when authenticated
   useEffect(() => {
     if (LOCAL_DEMO_MODE && user) {
@@ -185,6 +193,11 @@ export default function App() {
     try {
       let tokenForGoogleApis = accessToken;
       if (!tokenForGoogleApis && allowGooglePrompt) {
+        if (isNativeApp) {
+          alert("Google Contacts sync is disabled in the Android app for now. Enter the receiver email manually.");
+          setContacts([]);
+          return;
+        }
         tokenForGoogleApis = await requestGoogleWorkspaceAccess();
         setAccessToken(tokenForGoogleApis);
       }
@@ -223,6 +236,12 @@ export default function App() {
 
   // 3. Authenticate Google Client
   const handleLogin = async () => {
+    if (isNativeApp) {
+      setAuthError("Google login is disabled in the Android APK for now. Use Email sign in.");
+      setAuthMode("email");
+      return;
+    }
+
     setIsLoggingIn(true);
     setAuthError(null);
     try {
@@ -611,7 +630,7 @@ export default function App() {
             Voice Translation & Call Assistant
           </p>
 
-          <div className="grid grid-cols-2 gap-2 mb-4 rounded-2xl bg-black/40 border border-white/10 p-1">
+          <div className={`grid ${isNativeApp ? "grid-cols-1" : "grid-cols-2"} gap-2 mb-4 rounded-2xl bg-black/40 border border-white/10 p-1`}>
             <button
               type="button"
               onClick={() => setAuthMode("email")}
@@ -619,14 +638,22 @@ export default function App() {
             >
               Email
             </button>
-            <button
-              type="button"
-              onClick={() => setAuthMode("google")}
-              className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${authMode === "google" ? "bg-cyan-400 text-slate-950" : "text-zinc-400 hover:text-white"}`}
-            >
-              Google
-            </button>
+            {!isNativeApp && (
+              <button
+                type="button"
+                onClick={() => setAuthMode("google")}
+                className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${authMode === "google" ? "bg-cyan-400 text-slate-950" : "text-zinc-400 hover:text-white"}`}
+              >
+                Google
+              </button>
+            )}
           </div>
+
+          {isNativeApp && (
+            <p className="mb-4 text-[11px] leading-relaxed text-cyan-100 bg-cyan-400/10 border border-cyan-300/15 rounded-2xl p-3">
+              Android app uses email accounts. Google login will be added with native Google Sign-In later.
+            </p>
+          )}
 
           {authMode === "email" ? (
             <form onSubmit={handleEmailLogin} className="space-y-3 text-left">
