@@ -41,6 +41,7 @@ export function ActiveCallScreen({
   initialVoice = "Aoede",
   initialVideoEnabled = true
 }: ActiveCallScreenProps) {
+  const isTurkishUi = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("tr");
   const isCaller = call.callerEmail === currentUserEmail;
   const isLocalDemoCall = call.meetUri === "jusur://local-demo";
   const partnerName = isCaller ? call.receiverEmail.split("@")[0] : call.callerName;
@@ -697,7 +698,7 @@ export function ActiveCallScreen({
                 id="btn-interpreter-toggle"
                 className={`h-10 px-4 rounded-2xl text-xs font-black ${isInterpreterOn ? "bg-emerald-300 text-slate-950" : "bg-white/10 text-cyan-100 border border-white/10"}`}
               >
-                {isInterpreterOn ? "On" : "Start"}
+                {isInterpreterOn ? (isTurkishUi ? "Açık" : "On") : (isTurkishUi ? "Tercüme et" : "Translate")}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">

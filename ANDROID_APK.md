@@ -23,7 +23,7 @@ com.jusur.call
 4. Download the `jusur-android-apk` artifact, or use the stable release asset:
 
 ```txt
-https://github.com/celalarslan/Jusur/releases/download/android-latest/Jusur-Android.apk
+https://github.com/celalarslan/Jusur/releases/download/android-release/Jusur-Android-Release.apk
 ```
 
 ## GitHub Actions signed release build

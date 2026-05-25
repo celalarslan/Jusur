@@ -12,6 +12,7 @@ import {
   LogOut, 
   Voicemail, 
   PhoneCall,
+  UserPlus,
   History,
   Loader2,
   Video,
@@ -76,7 +77,7 @@ const LOCAL_DEMO_USER = {
   photoURL: null
 } as FirebaseUser;
 
-const ANDROID_APK_URL = "https://github.com/celalarslan/Jusur/releases/download/android-latest/Jusur-Android.apk";
+const ANDROID_APK_URL = "https://github.com/celalarslan/Jusur/releases/download/android-release/Jusur-Android-Release.apk";
 const CALL_RING_SECONDS = 45;
 
 const QUICK_LANGUAGES = [
@@ -88,6 +89,25 @@ const QUICK_LANGUAGES = [
   { value: "French (Français)", label: "French" },
   { value: "German (Deutsch)", label: "German" }
 ];
+
+const getContactLibraryKey = (email: string) => `jusur_contact_library_${email.toLowerCase()}`;
+
+const mergeContactLists = (...lists: Contact[][]) => {
+  const byEmail = new Map<string, Contact>();
+  lists.flat().forEach((contact) => {
+    const email = contact.email.trim().toLowerCase();
+    if (!email) return;
+    const existing = byEmail.get(email);
+    byEmail.set(email, {
+      ...contact,
+      ...existing,
+      email,
+      name: existing?.name || contact.name || email.split("@")[0],
+      resourceName: existing?.resourceName || contact.resourceName || `contact-${email}`
+    });
+  });
+  return Array.from(byEmail.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
 
 export default function App() {
   const locale = getBrowserLocale();
@@ -187,6 +207,23 @@ export default function App() {
     }
   }, [secretaryRepresentsName, user]);
 
+  const getStoredContactLibrary = () => {
+    if (!user?.email || typeof localStorage === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(getContactLibraryKey(user.email));
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Contact[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const saveStoredContactLibrary = (library: Contact[]) => {
+    if (!user?.email || typeof localStorage === "undefined") return;
+    localStorage.setItem(getContactLibraryKey(user.email), JSON.stringify(library));
+  };
+
   useEffect(() => {
     if (user && isNativeApp && localStorage.getItem("jusur_media_permissions_checked") !== "1") {
       requestCallPermissions();
@@ -237,17 +274,18 @@ export default function App() {
     
     try {
       let tokenForGoogleApis = accessToken;
+      const storedContacts = getStoredContactLibrary();
       if (isNativeApp) {
         const nativeContacts = await fetchNativeContacts();
-        setContacts(markRegisteredContacts(nativeContacts));
+        setContacts(markRegisteredContacts(mergeContactLists(storedContacts, nativeContacts)));
       } else if (!tokenForGoogleApis && allowGooglePrompt) {
         tokenForGoogleApis = await requestGoogleWorkspaceAccess();
         setAccessToken(tokenForGoogleApis);
       } else if (tokenForGoogleApis) {
         const contactList = await fetchGoogleContacts(tokenForGoogleApis);
-        setContacts(markRegisteredContacts(contactList));
+        setContacts(markRegisteredContacts(mergeContactLists(storedContacts, contactList)));
       } else {
-        setContacts([]);
+        setContacts(markRegisteredContacts(storedContacts));
       }
 
       // Load historic Voicemails left for current user email
@@ -744,6 +782,25 @@ export default function App() {
     handleInitiateCall(manualContact, mode);
   };
 
+  const handleSaveManualContact = () => {
+    const email = manualDialInput.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      alert("Enter an email address to add a contact.");
+      return;
+    }
+
+    const nextContact: Contact = {
+      name: email.split("@")[0],
+      email,
+      resourceName: `manual-contact-${email}`,
+      isRegistered: registeredEmails.has(email)
+    };
+    const nextStoredLibrary = mergeContactLists(getStoredContactLibrary(), [nextContact]);
+    saveStoredContactLibrary(nextStoredLibrary);
+    setContacts((previous) => markRegisteredContacts(mergeContactLists(previous, nextStoredLibrary)));
+    setSearchQuery("");
+  };
+
   // Filter contacts by search query
   const filteredContacts = contacts.filter(
     (c) =>
@@ -956,10 +1013,23 @@ export default function App() {
                     <input
                       type="text"
                       value={manualDialInput}
-                      onChange={(e) => setManualDialInput(e.target.value)}
+                      onChange={(e) => {
+                        setManualDialInput(e.target.value);
+                        setSearchQuery(e.target.value);
+                      }}
                       placeholder={t("contactInput")}
-                      className="w-full h-14 rounded-2xl border border-white/10 bg-slate-950/80 pl-11 pr-4 text-[15px] font-bold text-white placeholder:text-slate-600 outline-none focus:border-cyan-300/40"
+                      className="w-full h-14 rounded-2xl border border-white/10 bg-slate-950/80 pl-11 pr-14 text-[15px] font-bold text-white placeholder:text-slate-600 outline-none focus:border-cyan-300/40"
                     />
+                    <button
+                      type="button"
+                      onClick={handleSaveManualContact}
+                      disabled={!manualDialInput.includes("@")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-xl border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 flex items-center justify-center disabled:opacity-35 active:scale-95 transition"
+                      title="Add contact"
+                      aria-label="Add contact"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 mt-4">
