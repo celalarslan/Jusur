@@ -90,12 +90,19 @@ export function ActiveCallScreen({
   // Establish WebRTC audio/video connection via Firestore signaling.
   useEffect(() => {
     let active = true;
-    const stunServers = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-    const pc = new RTCPeerConnection(stunServers);
-    peerConnectionRef.current = pc;
 
     const setupConnection = async () => {
       try {
+        const iceConfig = await fetch("/api/rtc/ice-servers")
+          .then((response) => response.ok ? response.json() : null)
+          .catch(() => null);
+        const pc = new RTCPeerConnection({
+          iceServers: iceConfig?.iceServers?.length
+            ? iceConfig.iceServers
+            : [{ urls: "stun:stun.l.google.com:19302" }]
+        });
+        peerConnectionRef.current = pc;
+
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -210,7 +217,7 @@ export function ActiveCallScreen({
       active = false;
       cleanupWebRTC();
     };
-  }, [isLocalDemoCall, initialVideoEnabled]);
+  }, [isCaller, isLocalDemoCall, initialVideoEnabled]);
 
   // Helper to handle signals updated from App's Firestore listener
   useEffect(() => {

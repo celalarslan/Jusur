@@ -49,6 +49,12 @@ import {
 import { fetchGoogleContacts } from "./contacts";
 import { enableIncomingCallNotifications } from "./notifications";
 import { createTranslator, getBrowserLocale } from "./i18n";
+import {
+  fetchNativeContacts,
+  openNativeBatterySettings,
+  openNativeFullScreenIntentSettings,
+  openNativeNotificationSettings
+} from "./native";
 
 // Modular sub components
 import { IncomingOverlay } from "./components/IncomingOverlay";
@@ -231,17 +237,13 @@ export default function App() {
     
     try {
       let tokenForGoogleApis = accessToken;
-      if (!tokenForGoogleApis && allowGooglePrompt) {
-        if (isNativeApp) {
-          alert("Google Contacts sync is disabled in the Android app for now. Enter the receiver email manually.");
-          setContacts([]);
-          return;
-        }
+      if (isNativeApp) {
+        const nativeContacts = await fetchNativeContacts();
+        setContacts(markRegisteredContacts(nativeContacts));
+      } else if (!tokenForGoogleApis && allowGooglePrompt) {
         tokenForGoogleApis = await requestGoogleWorkspaceAccess();
         setAccessToken(tokenForGoogleApis);
-      }
-
-      if (tokenForGoogleApis) {
+      } else if (tokenForGoogleApis) {
         const contactList = await fetchGoogleContacts(tokenForGoogleApis);
         setContacts(markRegisteredContacts(contactList));
       } else {
@@ -308,6 +310,17 @@ export default function App() {
       console.error("Media permission request failed:", error);
       setPermissionStatus("error");
       alert("Camera/microphone permission is required for calls. Open Android App info > Permissions and allow Camera and Microphone.");
+    }
+  };
+
+  const openNativeSettings = async (type: "notifications" | "battery" | "fullscreen") => {
+    try {
+      if (type === "notifications") await openNativeNotificationSettings();
+      if (type === "battery") await openNativeBatterySettings();
+      if (type === "fullscreen") await openNativeFullScreenIntentSettings();
+    } catch (error) {
+      console.error("Native settings could not be opened:", error);
+      alert("Could not open Android settings automatically. Open App info for Jusur manually.");
     }
   };
 
@@ -1201,6 +1214,13 @@ export default function App() {
                     {permissionStatus === "requesting" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
                     {permissionStatus === "ready" ? "Camera and mic ready" : "Allow camera and mic"}
                   </button>
+                  {isNativeApp && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => openNativeSettings("notifications")} className="h-10 rounded-2xl border border-white/10 bg-slate-950 text-[10px] font-black text-slate-300">Alerts</button>
+                      <button type="button" onClick={() => openNativeSettings("fullscreen")} className="h-10 rounded-2xl border border-white/10 bg-slate-950 text-[10px] font-black text-slate-300">Full screen</button>
+                      <button type="button" onClick={() => openNativeSettings("battery")} className="h-10 rounded-2xl border border-white/10 bg-slate-950 text-[10px] font-black text-slate-300">Battery</button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-[26px] border border-violet-300/15 bg-violet-300/[0.055] p-4 space-y-3">

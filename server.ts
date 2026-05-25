@@ -48,6 +48,30 @@ function getFirebaseAdmin() {
   };
 }
 
+function getIceServersFromEnv() {
+  const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ];
+
+  const turnUrls = (process.env.TURN_URLS || "")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean);
+  const turnUsername = process.env.TURN_USERNAME;
+  const turnCredential = process.env.TURN_CREDENTIAL;
+
+  if (turnUrls.length > 0 && turnUsername && turnCredential) {
+    iceServers.push({
+      urls: turnUrls,
+      username: turnUsername,
+      credential: turnCredential
+    });
+  }
+
+  return iceServers;
+}
+
 function pcm16ToWavBase64(pcmBase64: string, sampleRate = 24000, channels = 1): string {
   const pcmBuffer = Buffer.from(pcmBase64, "base64");
   const header = Buffer.alloc(44);
@@ -146,6 +170,13 @@ app.post("/api/meet/create-space", async (req, res) => {
     console.error("Error creating Google Meet Space:", error);
     return res.status(500).json({ error: "Internal server error creating Google Meet space" });
   }
+});
+
+app.get("/api/rtc/ice-servers", (_req, res) => {
+  return res.json({
+    iceServers: getIceServersFromEnv(),
+    hasTurn: Boolean(process.env.TURN_URLS && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL)
+  });
 });
 
 app.post("/api/notify/incoming-call", async (req, res) => {

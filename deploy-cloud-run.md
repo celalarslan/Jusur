@@ -32,12 +32,20 @@ gcloud services enable \
 
 Replace `YOUR_GEMINI_API_KEY` with the Gemini key. Do not commit it.
 
+For reliable WebRTC across mobile networks, add TURN credentials from a provider such as Metered, Twilio, Xirsys, or your own coturn server:
+
+- `TURN_URLS`: comma-separated TURN URLs, for example `turn:global.turn.example.com:3478,turns:global.turn.example.com:5349`
+- `TURN_USERNAME`
+- `TURN_CREDENTIAL`
+
 ```bash
 gcloud run deploy j-call \
   --source . \
   --region europe-west1 \
   --allow-unauthenticated \
-  --set-env-vars GEMINI_API_KEY=YOUR_GEMINI_API_KEY,GOOGLE_CLOUD_PROJECT_NUMBER=734750832655
+  --port 3000 \
+  --clear-base-image \
+  --set-env-vars GEMINI_API_KEY=YOUR_GEMINI_API_KEY,GOOGLE_CLOUD_PROJECT_NUMBER=734750832655,TURN_URLS=YOUR_TURN_URLS,TURN_USERNAME=YOUR_TURN_USERNAME,TURN_CREDENTIAL=YOUR_TURN_CREDENTIAL
 ```
 
 When deployment finishes, Cloud Run prints a service URL like:
@@ -84,4 +92,3 @@ Open the Cloud Run URL and test:
 4. Audio call
 5. Video call
 6. Live translation
-
