@@ -78,6 +78,10 @@ const LOCAL_DEMO_USER = {
 
 const ANDROID_APK_URL = "https://github.com/celalarslan/Jusur/releases/download/android-latest/Jusur-Android.apk";
 const CALL_RING_SECONDS = 45;
+const createConferenceId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `conf-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const QUICK_LANGUAGES = [
   { value: "auto", label: "Auto" },
@@ -327,7 +331,7 @@ export default function App() {
   // 3. Authenticate Google Client
   const handleLogin = async () => {
     if (isNativeApp) {
-      setAuthError("Google login is disabled in the Android APK for now. Use Email sign in.");
+      setAuthError("Cloud login is disabled in the Android APK for now. Use email sign in.");
       setAuthMode("email");
       return;
     }
@@ -341,7 +345,7 @@ export default function App() {
       }
     } catch (e) {
       console.error("Google Auth SignIn Failure:", e);
-      setAuthError("Google login is blocked by OAuth origin settings. Use email login for local testing.");
+      setAuthError("Cloud login is blocked by origin settings. Use email login for local testing.");
     } finally {
       setIsLoggingIn(false);
     }
@@ -362,7 +366,7 @@ export default function App() {
     } catch (error: any) {
       console.error("Email login failure:", error);
       if (error?.code === "auth/operation-not-allowed") {
-        setAuthError("Email login is not enabled yet in Firebase Authentication.");
+        setAuthError("Email login is not enabled yet for this app.");
       } else if (error?.code === "auth/email-already-in-use") {
         setAuthError("This email already has an account. Switch to Sign in.");
       } else if (error?.code === "auth/invalid-credential" || error?.code === "auth/user-not-found") {
@@ -456,6 +460,7 @@ export default function App() {
 
     try {
       if (LOCAL_DEMO_MODE) {
+        const demoConferenceId = createConferenceId();
         const demoCall: CallDocument = {
           id: `local-demo-${Date.now()}`,
           callerId: user.uid,
@@ -464,6 +469,9 @@ export default function App() {
           receiverEmail: contact.email,
           meetUri: "jusur://local-demo",
           status: "answered",
+          conferenceId: demoConferenceId,
+          participants: [user.email, contact.email],
+          invitedParticipants: [],
           timestamp: null
         };
         setOutgoingCall(demoCall);
@@ -496,6 +504,9 @@ export default function App() {
         }
       }
 
+      const conferenceId = createConferenceId();
+      const participants = Array.from(new Set([user.email, contact.email].map((email) => email.toLowerCase())));
+
       // Create Call signaling document with 'ringing' status
       const callLogId = await createCallLogDoc({
         callerId: user.uid,
@@ -515,7 +526,10 @@ export default function App() {
         callerEmail: user.email,
         receiverEmail: contact.email,
         meetUri: meetingUri,
-        status: "ringing"
+        status: "ringing",
+        conferenceId,
+        participants,
+        invitedParticipants: []
       });
 
       fetch("/api/notify/incoming-call", {
@@ -535,6 +549,9 @@ export default function App() {
         receiverEmail: contact.email,
         meetUri: meetingUri,
         status: "ringing",
+        conferenceId,
+        participants,
+        invitedParticipants: [],
         timestamp: null
       };
       setOutgoingCall(initialCallObj);
@@ -547,9 +564,42 @@ export default function App() {
 
     } catch (err: any) {
       console.error("Calling origin step failure:", err);
-      alert(`Call failed: ${err.message || "Please make sure your Google token details are valid."}`);
+      alert(`Call failed: ${err.message || "Please check your account connection and try again."}`);
       setDialState("idle");
     }
+  };
+
+  const handleInviteParticipant = async (email: string) => {
+    if (!user?.email || !outgoingCall) {
+      throw new Error("Active call was not found.");
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      throw new Error("Enter a valid email address.");
+    }
+    if (normalizedEmail === user.email.toLowerCase()) {
+      throw new Error("You are already in this call.");
+    }
+
+    const currentParticipants = (outgoingCall.participants || [outgoingCall.callerEmail, outgoingCall.receiverEmail])
+      .filter(Boolean)
+      .map((participant) => participant.toLowerCase());
+    const nextParticipants = Array.from(new Set([...currentParticipants, normalizedEmail]));
+    const nextInvited = Array.from(new Set([...(outgoingCall.invitedParticipants || []), normalizedEmail]));
+
+    await updateCallDoc(outgoingCall.id, {
+      conferenceId: outgoingCall.conferenceId || outgoingCall.id,
+      participants: nextParticipants,
+      invitedParticipants: nextInvited
+    });
+
+    setOutgoingCall({
+      ...outgoingCall,
+      conferenceId: outgoingCall.conferenceId || outgoingCall.id,
+      participants: nextParticipants,
+      invitedParticipants: nextInvited
+    });
   };
 
   const subscribeToOutgoingCall = (callId: string, meetUri: string, targetName: string, callLogId?: string) => {
@@ -761,7 +811,7 @@ export default function App() {
     );
   }
 
-  // A: Standard Authentication Screen (Needs Google SignIn)
+  // A: Standard Authentication Screen
   if (needsAuth || !user) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center font-sans px-4 relative overflow-hidden">
@@ -807,14 +857,14 @@ export default function App() {
                 onClick={() => setAuthMode("google")}
                 className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${authMode === "google" ? "bg-cyan-400 text-slate-950" : "text-zinc-400 hover:text-white"}`}
               >
-                Google
+                Cloud
               </button>
             )}
           </div>
 
           {isNativeApp && (
             <p className="mb-4 text-[11px] leading-relaxed text-cyan-100 bg-cyan-400/10 border border-cyan-300/15 rounded-2xl p-3">
-              Android app uses email accounts. Google login will be added with native Google Sign-In later.
+              Android app uses email accounts. Cloud sign-in will be added later.
             </p>
           )}
 
@@ -860,7 +910,7 @@ export default function App() {
               />
               <p className="text-[10px] leading-relaxed text-zinc-500 px-1">
                 {emailAuthMode === "signup"
-                  ? "Choose any password with at least 6 characters. This creates a local Firebase account for testing."
+                  ? "Choose any password with at least 6 characters. This creates your Jusur account."
                   : "Use the password you created for this email account."}
               </p>
               <button
@@ -883,14 +933,9 @@ export default function App() {
               {isLoggingIn ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4 shrink-0 shadow-sm">
-                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                </svg>
+                <UserIcon className="w-4 h-4 shrink-0" />
               )}
-              <span>Connect Google APIs</span>
+              <span>Connect cloud account</span>
             </button>
           )}
 
@@ -1329,10 +1374,10 @@ export default function App() {
                     {t("serviceStatus")}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px] font-bold text-slate-400">
-                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Firebase: j-call-prod</span>
-                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Firestore: eur3</span>
-                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Gemini Live: ready</span>
-                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Meet: Google token</span>
+                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Account sync: ready</span>
+                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Secure data: ready</span>
+                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Live voice: ready</span>
+                    <span className="rounded-2xl bg-slate-950 border border-white/10 p-3">Call bridge: ready</span>
                   </div>
                 </div>
 
@@ -1374,6 +1419,7 @@ export default function App() {
                 initialPartnerLanguage={partnerLanguage}
                 initialVoice={preferredVoice}
                 initialVideoEnabled={callMode === "video"}
+                onInviteParticipant={handleInviteParticipant}
               />
             )}
           </div>

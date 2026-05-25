@@ -46,12 +46,12 @@ export async function enableIncomingCallNotifications(): Promise<string> {
 
   const supported = await isSupported();
   if (!supported) {
-    throw new Error("Firebase Messaging is not supported in this browser.");
+    throw new Error("Incoming call alerts are not supported in this browser.");
   }
 
   const vapidKey = (firebaseConfig as { fcmVapidKey?: string }).fcmVapidKey;
   if (!vapidKey) {
-    throw new Error("Firebase Web Push key is missing. Add fcmVapidKey to firebase-applet-config.json.");
+    throw new Error("Incoming call alerts are not configured yet.");
   }
 
   const permission = await Notification.requestPermission();
@@ -67,7 +67,7 @@ export async function enableIncomingCallNotifications(): Promise<string> {
   });
 
   if (!token) {
-    throw new Error("Firebase Messaging did not return a device token.");
+    throw new Error("This device could not register for incoming call alerts.");
   }
 
   await saveNotificationToken(token, "web");
