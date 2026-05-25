@@ -737,6 +737,11 @@ export function ActiveCallScreen({
                 value={messageText}
                 onChange={(event) => setMessageText(event.target.value)}
                 placeholder="Write a message..."
+                dir="auto"
+                inputMode="text"
+                autoCapitalize="sentences"
+                autoComplete="off"
+                enterKeyHint="send"
                 className="min-w-0 flex-1 h-11 rounded-2xl bg-black/60 border border-white/10 px-4 text-sm font-semibold outline-none focus:border-cyan-300/40"
               />
               <button type="submit" className="h-11 w-11 rounded-2xl bg-cyan-300 text-slate-950 flex items-center justify-center">

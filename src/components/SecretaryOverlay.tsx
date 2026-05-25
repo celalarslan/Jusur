@@ -272,7 +272,7 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
   };
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-zinc-950 font-sans text-zinc-100 rounded-2xl border border-zinc-800 overflow-hidden">
+    <div className="fixed inset-0 z-[90] flex flex-col bg-zinc-950 font-sans text-zinc-100 overflow-hidden">
       
       {/* Header bar */}
       <div className="flex justify-between items-center px-4 py-3 border-b border-zinc-800 bg-zinc-900/90 shadow-md shadow-black/10 shrink-0">
@@ -430,9 +430,9 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
           </div>
 
           {/* Type message drawer */}
-          <form 
-            onSubmit={handleTextSubmit} 
-            className="p-2.5 bg-zinc-900 border-t border-zinc-800 flex items-center gap-2 shrink-0"
+          <form
+            onSubmit={handleTextSubmit}
+            className="sticky bottom-0 p-2.5 pb-[calc(env(safe-area-inset-bottom)+10px)] bg-zinc-900 border-t border-zinc-800 flex items-center gap-2 shrink-0"
           >
             <input
               type="text"
@@ -441,7 +441,12 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
               placeholder="Type message directly..."
               disabled={isProcessing}
               id="input-text-msg"
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-violet-500/40 transition-colors"
+              dir="auto"
+              inputMode="text"
+              autoCapitalize="sentences"
+              autoComplete="off"
+              enterKeyHint="send"
+              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-3 text-base leading-6 text-zinc-100 placeholder-zinc-500 outline-none focus:border-violet-500/40 transition-colors"
             />
             <button
               type="submit"
