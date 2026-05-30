@@ -1,5 +1,6 @@
 package com.jusur.call;
 
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Window;
@@ -24,5 +25,11 @@ public class MainActivity extends BridgeActivity {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             );
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
     }
 }

@@ -45,6 +45,7 @@ import {
   updateCallLogDoc,
   deleteCallLogDoc,
   deleteCallDoc, 
+  fetchCallDoc,
   listenIncomingCalls, 
   listenSingleCall,
   fetchVoicemails,
@@ -54,6 +55,7 @@ import {
   fetchCallLogs,
   fetchDirectMessages,
   listenDirectMessages,
+  markDirectMessageRead,
   sendDirectMessage,
   fetchRegisteredUserEmails,
   registerPublicUser
@@ -63,6 +65,7 @@ import { enableIncomingCallNotifications } from "./notifications";
 import { createTranslator, getBrowserLocale } from "./i18n";
 import {
   fetchNativeContacts,
+  getPendingNativeCallAction,
   openNativeBatterySettings,
   openNativeFullScreenIntentSettings,
   openNativeNotificationSettings
@@ -170,6 +173,12 @@ const getCallLogMeta = (log: CallLogDocument) => {
     label: "Outgoing",
     tone: "bg-emerald-300/10 border-emerald-300/20 text-emerald-100"
   };
+};
+
+const formatMessageTime = (timestamp: any) => {
+  const date = timestamp?.toDate?.() || (typeof timestamp?.toMillis === "function" ? new Date(timestamp.toMillis()) : null);
+  if (!date) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
 export default function App() {
@@ -381,6 +390,28 @@ export default function App() {
     }
   }, [isNativeApp, user]);
 
+  useEffect(() => {
+    if (!user?.email || !isNativeApp) return;
+
+    let cancelled = false;
+    const readPendingAction = async () => {
+      try {
+        const pending = await getPendingNativeCallAction();
+        if (cancelled || !pending.callId || !pending.action) return;
+        await handleNativeCallAction(pending.callId, pending.action);
+      } catch (error) {
+        console.warn("Native call action could not be handled:", error);
+      }
+    };
+
+    readPendingAction();
+    const interval = window.setInterval(readPendingAction, 1200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isNativeApp, user?.email]);
+
   // 2. Fetch Contacts and Voicemails when authenticated
   useEffect(() => {
     if (LOCAL_DEMO_MODE && user) {
@@ -531,6 +562,7 @@ export default function App() {
       senderName: user.displayName || user.email.split("@")[0],
       receiverEmail: selectedMessageContact.email.toLowerCase(),
       text,
+      readBy: [user.email.toLowerCase()],
       timestamp: { toMillis: () => Date.now(), toDate: () => new Date() }
     };
 
@@ -545,6 +577,24 @@ export default function App() {
       showToast("Message could not be sent.", "error");
     }
   };
+
+  useEffect(() => {
+    if (!user?.email || !selectedMessageContact) return;
+    const myEmail = user.email.toLowerCase();
+    const peerEmail = selectedMessageContact.email.toLowerCase();
+    directMessages
+      .filter((message) =>
+        message.senderEmail === peerEmail &&
+        message.receiverEmail === myEmail &&
+        !message.readBy?.map((email) => email.toLowerCase()).includes(myEmail)
+      )
+      .slice(0, 20)
+      .forEach((message) => {
+        markDirectMessageRead(message.id, myEmail, message.readBy).catch((error) => {
+          console.warn("Message read state could not be saved:", error);
+        });
+      });
+  }, [directMessages, selectedMessageContact, user?.email]);
 
   // Quick refresh helper for the voicemails inbox
   const reloadVoicemails = async () => {
@@ -943,26 +993,26 @@ export default function App() {
   };
 
   // 6. Handle Incoming Call state selections (Receiver flow)
-  const handleAcceptIncoming = async () => {
-    if (!incomingCall) return;
-    const callId = incomingCall.id;
+  const handleAcceptCall = async (callToAccept: CallDocument) => {
+    const callId = callToAccept.id;
     try {
       console.log("Accepting incoming call, updating Firestore...");
       await updateCallDoc(callId, { status: "answered" });
       await createCallLogDoc({
-        callerId: incomingCall.callerId,
-        callerName: incomingCall.callerName,
-        callerEmail: incomingCall.callerEmail,
-        receiverEmail: incomingCall.receiverEmail,
+        callerId: callToAccept.callerId,
+        callerName: callToAccept.callerName,
+        callerEmail: callToAccept.callerEmail,
+        receiverEmail: callToAccept.receiverEmail,
         receiverName: user?.displayName || user?.email?.split("@")[0] || "Jusur user",
-        mode: incomingCall.mode || callMode,
+        mode: callToAccept.mode || callMode,
         direction: "incoming",
         status: "answered"
       });
       
-      setReceiverName(incomingCall.callerName);
-      setReceiverEmail(incomingCall.callerEmail);
-      setOutgoingCall(incomingCall);
+      setCallMode(callToAccept.mode || callMode);
+      setReceiverName(callToAccept.callerName);
+      setReceiverEmail(callToAccept.callerEmail);
+      setOutgoingCall(callToAccept);
       setDialState("active_call");
 
       // Receiver listens to caller hung-ups
@@ -988,18 +1038,22 @@ export default function App() {
     }
   };
 
-  const handleDeclineIncoming = async () => {
+  const handleAcceptIncoming = async () => {
     if (!incomingCall) return;
+    await handleAcceptCall(incomingCall);
+  };
+
+  const handleDeclineCall = async (callToDecline: CallDocument) => {
     try {
       console.log("Declining incoming call, updating status...");
-      await updateCallDoc(incomingCall.id, { status: "missed" });
+      await updateCallDoc(callToDecline.id, { status: "missed" });
       await createCallLogDoc({
-        callerId: incomingCall.callerId,
-        callerName: incomingCall.callerName,
-        callerEmail: incomingCall.callerEmail,
-        receiverEmail: incomingCall.receiverEmail,
+        callerId: callToDecline.callerId,
+        callerName: callToDecline.callerName,
+        callerEmail: callToDecline.callerEmail,
+        receiverEmail: callToDecline.receiverEmail,
         receiverName: user?.displayName || user?.email?.split("@")[0] || "Jusur user",
-        mode: incomingCall.mode || callMode,
+        mode: callToDecline.mode || callMode,
         direction: "incoming",
         status: "missed"
       });
@@ -1007,6 +1061,31 @@ export default function App() {
     } catch (e) {
       console.error("Decline call error:", e);
     }
+  };
+
+  const handleDeclineIncoming = async () => {
+    if (!incomingCall) return;
+    await handleDeclineCall(incomingCall);
+  };
+
+  const handleNativeCallAction = async (callId: string, action: string) => {
+    const callDoc = incomingCall?.id === callId ? incomingCall : await fetchCallDoc(callId);
+    if (!callDoc) {
+      showToast("Incoming call is no longer available.", "warning");
+      return;
+    }
+
+    if (action === "answer") {
+      await handleAcceptCall(callDoc);
+      return;
+    }
+
+    if (action === "decline") {
+      await handleDeclineCall(callDoc);
+      return;
+    }
+
+    setIncomingCall(callDoc);
   };
 
   // Clear session after finishing secretary voicemail recording
@@ -1088,6 +1167,16 @@ export default function App() {
       };
     })
   );
+  const unreadCountsByEmail: Map<string, number> = directMessages.reduce<Map<string, number>>((counts, message) => {
+    const myEmail = user.email?.toLowerCase();
+    if (!myEmail || message.senderEmail === myEmail || message.readBy?.map((email) => email.toLowerCase()).includes(myEmail)) {
+      return counts;
+    }
+    const current = counts.get(message.senderEmail) || 0;
+    counts.set(message.senderEmail, current + 1);
+    return counts;
+  }, new Map<string, number>());
+  const totalUnreadMessages = Array.from(unreadCountsByEmail.values()).reduce<number>((total, count) => total + count, 0);
 
   // App loading spinner
   if (appLoading) {
@@ -1539,6 +1628,7 @@ export default function App() {
                     ) : (
                       messageContacts.map((contact) => {
                         const lastMessage = directMessages.find((message) => message.participants.includes(contact.email.toLowerCase()));
+                        const unreadCount = unreadCountsByEmail.get(contact.email.toLowerCase()) || 0;
                         const active = selectedMessageContact?.email.toLowerCase() === contact.email.toLowerCase();
                         return (
                           <button
@@ -1557,6 +1647,16 @@ export default function App() {
                               <p className={`text-[10px] truncate ${active ? "text-slate-800" : "text-slate-500"}`}>
                                 {lastMessage?.text || contact.email}
                               </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className={`text-[9px] font-bold ${active ? "text-slate-800" : "text-slate-600"}`}>
+                                {formatMessageTime(lastMessage?.timestamp)}
+                              </span>
+                              {unreadCount > 0 && (
+                                <span className="min-w-5 h-5 px-1.5 rounded-full bg-emerald-300 text-slate-950 text-[10px] font-black flex items-center justify-center">
+                                  {unreadCount > 9 ? "9+" : unreadCount}
+                                </span>
+                              )}
                             </div>
                           </button>
                         );
@@ -1881,8 +1981,13 @@ export default function App() {
               <button type="button" onClick={() => setActivePanel("home")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "home" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Home">
                 <History className="w-5 h-5" />
               </button>
-              <button type="button" onClick={() => setActivePanel("messages")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "messages" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Messages">
+              <button type="button" onClick={() => setActivePanel("messages")} className={`relative h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "messages" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Messages">
                 <MessageCircle className="w-5 h-5" />
+                {totalUnreadMessages > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-5 h-5 px-1 rounded-full bg-emerald-300 text-slate-950 text-[10px] font-black flex items-center justify-center border border-slate-950">
+                    {totalUnreadMessages > 9 ? "9+" : totalUnreadMessages}
+                  </span>
+                )}
               </button>
               <button type="button" onClick={() => setActivePanel("contacts")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "contacts" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Contacts">
                 <PhoneCall className="w-5 h-5" />

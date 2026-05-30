@@ -6,6 +6,7 @@ interface JusurNativePlugin {
   openNotificationSettings(): Promise<void>;
   openBatterySettings(): Promise<void>;
   openFullScreenIntentSettings(): Promise<void>;
+  getPendingCallAction(): Promise<{ action?: "open" | "answer" | "decline" | ""; callId?: string }>;
 }
 
 const JusurNative = registerPlugin<JusurNativePlugin>("JusurNative");
@@ -25,4 +26,8 @@ export function openNativeBatterySettings() {
 
 export function openNativeFullScreenIntentSettings() {
   return JusurNative.openFullScreenIntentSettings();
+}
+
+export function getPendingNativeCallAction() {
+  return JusurNative.getPendingCallAction();
 }

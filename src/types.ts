@@ -68,6 +68,7 @@ export interface DirectMessageDocument {
   senderName: string;
   receiverEmail: string;
   text: string;
+  readBy?: string[];
   timestamp: any;
 }
 

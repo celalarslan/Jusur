@@ -101,7 +101,16 @@ service cloud.firestore {
         request.auth.token.email in request.resource.data.participants &&
         request.resource.data.receiverEmail in request.resource.data.participants;
 
-      allow update, delete: if false;
+      allow update: if request.auth != null &&
+        request.auth.token.email in resource.data.participants &&
+        request.resource.data.participants == resource.data.participants &&
+        request.resource.data.senderEmail == resource.data.senderEmail &&
+        request.resource.data.receiverEmail == resource.data.receiverEmail &&
+        request.resource.data.text == resource.data.text &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) &&
+        request.auth.token.email in request.resource.data.readBy;
+
+      allow delete: if false;
     }
 
     match /secretaryProfiles/{profileEmail} {

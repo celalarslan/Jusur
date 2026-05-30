@@ -427,12 +427,28 @@ export const sendDirectMessage = async (receiverEmail: string, text: string): Pr
       senderName: currentUser.displayName || senderEmail.split("@")[0],
       receiverEmail: normalizedReceiver,
       text,
+      readBy: [senderEmail],
       timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, pathOfCol);
     return "";
+  }
+};
+
+export const markDirectMessageRead = async (
+  messageId: string,
+  readerEmail: string,
+  currentReadBy: string[] = []
+): Promise<void> => {
+  const normalizedReader = readerEmail.trim().toLowerCase();
+  const nextReadBy = Array.from(new Set([...currentReadBy.map((email) => email.toLowerCase()), normalizedReader]));
+  const pathOfDoc = `directMessages/${messageId}`;
+  try {
+    await updateDoc(doc(db, "directMessages", messageId), { readBy: nextReadBy });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, pathOfDoc);
   }
 };
 
@@ -544,6 +560,18 @@ export const listenSingleCall = (callId: string, onUpdate: (call: CallDocument |
       onError(e);
     }
   });
+};
+
+export const fetchCallDoc = async (callId: string): Promise<CallDocument | null> => {
+  const pathForDoc = `calls/${callId}`;
+  try {
+    const docSnap = await getDoc(doc(db, "calls", callId));
+    if (!docSnap.exists()) return null;
+    return { id: docSnap.id, ...docSnap.data() } as CallDocument;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, pathForDoc);
+    return null;
+  }
 };
 
 // Delete a call doc

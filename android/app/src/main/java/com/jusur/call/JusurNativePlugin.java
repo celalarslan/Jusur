@@ -27,6 +27,9 @@ import java.util.Set;
     }
 )
 public class JusurNativePlugin extends Plugin {
+    private static final String EXTRA_CALL_ID = "call_id";
+    private static final String EXTRA_JUSUR_ACTION = "jusur_action";
+
     @PluginMethod
     public void getContacts(PluginCall call) {
         if (getPermissionState("contacts") != com.getcapacitor.PermissionState.GRANTED) {
@@ -133,5 +136,26 @@ public class JusurNativePlugin extends Plugin {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         getContext().startActivity(intent);
         call.resolve();
+    }
+
+    @PluginMethod
+    public void getPendingCallAction(PluginCall call) {
+        Intent intent = getActivity() == null ? null : getActivity().getIntent();
+        JSObject result = new JSObject();
+        if (intent == null) {
+            result.put("action", "");
+            result.put("callId", "");
+            call.resolve(result);
+            return;
+        }
+
+        String action = intent.getStringExtra(EXTRA_JUSUR_ACTION);
+        String callId = intent.getStringExtra(EXTRA_CALL_ID);
+        result.put("action", action == null ? "" : action);
+        result.put("callId", callId == null ? "" : callId);
+
+        intent.removeExtra(EXTRA_JUSUR_ACTION);
+        intent.removeExtra(EXTRA_CALL_ID);
+        call.resolve(result);
     }
 }

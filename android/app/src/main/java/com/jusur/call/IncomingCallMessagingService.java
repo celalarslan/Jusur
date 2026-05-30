@@ -18,6 +18,11 @@ import com.google.firebase.messaging.RemoteMessage;
 
 public class IncomingCallMessagingService extends FirebaseMessagingService {
     private static final String CHANNEL_ID = "incoming_calls";
+    private static final String EXTRA_CALL_ID = "call_id";
+    private static final String EXTRA_JUSUR_ACTION = "jusur_action";
+    private static final String ACTION_OPEN = "open";
+    private static final String ACTION_ANSWER = "answer";
+    private static final String ACTION_DECLINE = "decline";
 
     @Override
     public void onMessageReceived(RemoteMessage message) {
@@ -31,22 +36,17 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
             callerName = "Jusur caller";
         }
 
-        showIncomingCall(callerName);
+        String callId = message.getData().get("callId");
+        showIncomingCall(callerName, callId);
     }
 
-    private void showIncomingCall(String callerName) {
+    private void showIncomingCall(String callerName, String callId) {
         createChannel();
         wakeScreenBriefly();
 
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-            this,
-            1001,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        PendingIntent pendingIntent = buildCallPendingIntent(ACTION_OPEN, callId, 1001);
+        PendingIntent answerIntent = buildCallPendingIntent(ACTION_ANSWER, callId, 1002);
+        PendingIntent declineIntent = buildCallPendingIntent(ACTION_DECLINE, callId, 1003);
 
         Uri ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -61,10 +61,28 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true);
+            .setFullScreenIntent(pendingIntent, true)
+            .addAction(android.R.drawable.sym_call_incoming, "Answer", answerIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declineIntent);
 
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.notify(1001, builder.build());
+    }
+
+    private PendingIntent buildCallPendingIntent(String action, String callId, int requestCode) {
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra(EXTRA_JUSUR_ACTION, action);
+        if (callId != null) {
+            intent.putExtra(EXTRA_CALL_ID, callId);
+        }
+
+        return PendingIntent.getActivity(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
     }
 
     private void wakeScreenBriefly() {
