@@ -5,8 +5,12 @@ import {
 } from "firebase/auth";
 import { 
   Phone, 
+  PhoneIncoming,
+  PhoneOff,
+  PhoneOutgoing,
   Search, 
   Sparkles, 
+  Trash2,
   User as UserIcon, 
   LogOut, 
   Voicemail, 
@@ -38,6 +42,7 @@ import {
   createCallLogDoc,
   updateCallDoc, 
   updateCallLogDoc,
+  deleteCallLogDoc,
   deleteCallDoc, 
   listenIncomingCalls, 
   listenSingleCall,
@@ -113,6 +118,35 @@ const mergeContactLists = (...lists: Contact[][]) => {
     });
   });
   return Array.from(byEmail.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
+
+const getCallLogMeta = (log: CallLogDocument) => {
+  if (log.status === "missed") {
+    return {
+      Icon: PhoneOff,
+      label: "Missed",
+      tone: "bg-rose-500/10 border-rose-300/20 text-rose-200"
+    };
+  }
+  if (log.status === "secretary") {
+    return {
+      Icon: Voicemail,
+      label: "Secretary",
+      tone: "bg-violet-400/12 border-violet-300/25 text-violet-100"
+    };
+  }
+  if (log.direction === "incoming") {
+    return {
+      Icon: PhoneIncoming,
+      label: "Incoming",
+      tone: "bg-cyan-300/10 border-cyan-300/20 text-cyan-100"
+    };
+  }
+  return {
+    Icon: PhoneOutgoing,
+    label: "Outgoing",
+    tone: "bg-emerald-300/10 border-emerald-300/20 text-emerald-100"
+  };
 };
 
 export default function App() {
@@ -371,6 +405,19 @@ export default function App() {
       console.error("Failed deleting voicemail:", error);
       setVoicemails(previousVoicemails);
       showToast("Could not delete the secretary message.", "error");
+    }
+  };
+
+  const handleDeleteCallLog = async (logId: string) => {
+    const previousCallLogs = callLogs;
+    setCallLogs((current) => current.filter((log) => log.id !== logId));
+    try {
+      await deleteCallLogDoc(logId);
+      showToast("Call history item deleted.", "success");
+    } catch (error) {
+      console.error("Failed deleting call log:", error);
+      setCallLogs(previousCallLogs);
+      showToast("Could not delete the call history item.", "error");
     }
   };
 
@@ -1178,6 +1225,8 @@ export default function App() {
                       const otherName = log.direction === "incoming" ? log.callerName : (log.receiverName || log.receiverEmail);
                       const otherEmail = log.direction === "incoming" ? log.callerEmail : log.receiverEmail;
                       const formattedDate = log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "";
+                      const callMeta = getCallLogMeta(log);
+                      const CallIcon = callMeta.Icon;
                       const callContact: Contact = {
                         name: otherName,
                         email: otherEmail,
@@ -1186,12 +1235,12 @@ export default function App() {
                       };
                       return (
                         <div key={`log-${log.id}`} className="rounded-[18px] border border-white/8 bg-slate-950/55 px-3 py-2 flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${log.status === "missed" ? "bg-rose-500/10 border-rose-300/20 text-rose-200" : "bg-cyan-300/10 border-cyan-300/20 text-cyan-100"}`}>
-                            <History className="w-4 h-4" />
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${callMeta.tone}`}>
+                            <CallIcon className="w-4 h-4" />
                           </div>
                           <div className="min-w-0 flex-1">
                             <h3 className="text-sm font-black truncate">{otherName}</h3>
-                            <p className="text-[10px] text-slate-500 truncate">{log.direction || "call"} · {log.mode} · {log.status} · {formattedDate.split(",")[0]}</p>
+                            <p className="text-[10px] text-slate-500 truncate">{callMeta.label} · {log.mode} · {formattedDate.split(",")[0]}</p>
                           </div>
                           <button
                             type="button"
@@ -1411,13 +1460,27 @@ export default function App() {
                       callLogs.map((log) => {
                         const otherName = log.direction === "incoming" ? log.callerName : (log.receiverName || log.receiverEmail);
                         const formattedDate = log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "";
+                        const callMeta = getCallLogMeta(log);
+                        const CallIcon = callMeta.Icon;
                         return (
                           <div key={log.id} className="rounded-2xl border border-white/10 bg-slate-950 p-3 flex items-center justify-between gap-3">
-                            <div className="min-w-0">
+                            <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 border ${callMeta.tone}`}>
+                              <CallIcon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
                               <p className="text-xs font-black truncate">{otherName}</p>
-                              <p className="text-[10px] text-slate-500 truncate">{log.direction || "call"} · {log.mode} · {log.status}</p>
+                              <p className="text-[10px] text-slate-500 truncate">{callMeta.label} · {log.mode} · {log.status}</p>
                             </div>
                             <span className="text-[9px] text-slate-600 shrink-0">{formattedDate.split(",")[0]}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCallLog(log.id)}
+                              className="h-8 w-8 rounded-xl border border-rose-400/15 bg-rose-500/5 text-rose-200 flex items-center justify-center active:scale-95 transition"
+                              title="Delete call history item"
+                              aria-label="Delete call history item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         );
                       })

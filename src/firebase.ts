@@ -374,6 +374,15 @@ export const updateCallLogDoc = async (logId: string, updates: Partial<Omit<Call
   }
 };
 
+export const deleteCallLogDoc = async (logId: string): Promise<void> => {
+  const pathOfDoc = `callLogs/${logId}`;
+  try {
+    await deleteDoc(doc(db, "callLogs", logId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, pathOfDoc);
+  }
+};
+
 export const fetchCallLogs = async (email: string): Promise<CallLogDocument[]> => {
   const pathOfCol = "callLogs";
   try {
