@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, Square, Send, PhoneOff, User, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 import { ChatMessage, CallDocument, SecretaryProfile } from "../types";
-import { createVoicemailDoc, updateCallDoc, deleteCallDoc, fetchSecretaryProfile } from "../firebase";
+import { createVoicemailDoc, updateCallDoc, deleteCallDoc, fetchSecretaryProfile, getCurrentIdToken } from "../firebase";
 
 interface SecretaryOverlayProps {
   call: CallDocument;
@@ -202,10 +202,15 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
     }));
 
     try {
+      const idToken = await getCurrentIdToken();
       const res = await fetch("/api/secretary/respond", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Authorization": `Bearer ${idToken}`,
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({
+          callId: call.id,
           callerAudio: base64Audio,
           callerText: textContent,
           receiverName: call.receiverEmail.split("@")[0],

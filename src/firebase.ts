@@ -223,7 +223,6 @@ function requestGoogleAccessToken(scope: string): Promise<string> {
     const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
       client_id: GOOGLE_OAUTH_CLIENT_ID,
       scope,
-      prompt: "consent",
       callback: (response) => {
         if (response.error) {
           reject(new Error(response.error_description || response.error));
@@ -242,12 +241,20 @@ function requestGoogleAccessToken(scope: string): Promise<string> {
       return;
     }
 
-    tokenClient.requestAccessToken({ prompt: "consent" });
+    tokenClient.requestAccessToken({ prompt: "" });
   });
 }
 
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
+};
+
+export const getCurrentIdToken = async (): Promise<string> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("You must be signed in to continue.");
+  }
+  return currentUser.getIdToken();
 };
 
 export const logout = async () => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, PhoneOff, Globe, Video, VideoOff, Loader2, Send, MessageCircle } from "lucide-react";
 import { CallDocument, CallMessage } from "../types";
-import { updateCallDoc, deleteCallDoc } from "../firebase";
+import { updateCallDoc, deleteCallDoc, getCurrentIdToken } from "../firebase";
 
 interface ActiveCallScreenProps {
   call: CallDocument;
@@ -352,7 +352,8 @@ export function ActiveCallScreen({
       // 2. Establish WebSocket to backend
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/api/translate-live?myLang=${encodeURIComponent(myLanguage)}&partnerLang=${encodeURIComponent(partnerLanguage)}&voice=${encodeURIComponent(selectedVoice)}`;
+      const idToken = await getCurrentIdToken();
+      const wsUrl = `${protocol}//${host}/api/translate-live?myLang=${encodeURIComponent(myLanguage)}&partnerLang=${encodeURIComponent(partnerLanguage)}&voice=${encodeURIComponent(selectedVoice)}&callId=${encodeURIComponent(call.id)}&token=${encodeURIComponent(idToken)}`;
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;

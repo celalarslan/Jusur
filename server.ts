@@ -5,6 +5,7 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import dotenv from "dotenv";
 import { WebSocketServer } from "ws";
 import { initializeApp as initializeAdminApp, getApps } from "firebase-admin/app";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 import { getMessaging as getAdminMessaging } from "firebase-admin/messaging";
 
@@ -13,6 +14,7 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 
 // Increase limit to handle base64 audio uploads
 app.use(express.json({ limit: "50mb" }));
@@ -43,9 +45,33 @@ function getFirebaseAdmin() {
     initializeAdminApp();
   }
   return {
+    auth: getAdminAuth(),
     db: getAdminFirestore(),
     messaging: getAdminMessaging()
   };
+}
+
+function checkRateLimit(key: string, limit: number, windowMs: number) {
+  const now = Date.now();
+  const current = rateLimitBuckets.get(key);
+  if (!current || current.resetAt <= now) {
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (current.count >= limit) {
+    return false;
+  }
+  current.count += 1;
+  return true;
+}
+
+async function verifyBearerToken(authHeader?: string) {
+  const match = authHeader?.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  const { auth } = getFirebaseAdmin();
+  return auth.verifyIdToken(match[1]);
 }
 
 function getIceServersFromEnv() {
@@ -186,6 +212,14 @@ app.post("/api/notify/incoming-call", async (req, res) => {
   }
 
   try {
+    const decodedToken = await verifyBearerToken(req.headers.authorization);
+    if (!decodedToken?.email) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!checkRateLimit(`notify:${decodedToken.uid}`, 20, 60_000)) {
+      return res.status(429).json({ error: "Too many notification requests" });
+    }
+
     const { db, messaging } = getFirebaseAdmin();
     const callSnap = await db.collection("calls").doc(String(callId)).get();
     if (!callSnap.exists) {
@@ -193,6 +227,13 @@ app.post("/api/notify/incoming-call", async (req, res) => {
     }
 
     const call = callSnap.data() || {};
+    const requesterEmail = String(decodedToken.email).toLowerCase();
+    const callerEmail = String(call.callerEmail || "").toLowerCase();
+    const receiverEmailForCheck = String(call.receiverEmail || "").toLowerCase();
+    if (requesterEmail !== callerEmail && requesterEmail !== receiverEmailForCheck) {
+      return res.status(403).json({ error: "You are not allowed to notify this call" });
+    }
+
     const receiverEmail = call.receiverEmail;
     if (!receiverEmail) {
       return res.status(400).json({ error: "Call is missing receiverEmail" });
@@ -287,13 +328,35 @@ app.post("/api/notify/incoming-call", async (req, res) => {
 
 // 2. AI Secretary audio/text agent processor
 app.post("/api/secretary/respond", async (req, res) => {
-  const { callerAudio, callerText, receiverName, history, responseLanguage, secretaryProfile } = req.body;
+  const { callId, callerAudio, callerText, receiverName, history, responseLanguage, secretaryProfile } = req.body;
   
   if (!receiverName) {
     return res.status(400).json({ error: "receiverName is required" });
   }
 
   try {
+    const decodedToken = await verifyBearerToken(req.headers.authorization);
+    if (!decodedToken?.email) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!checkRateLimit(`secretary:${decodedToken.uid}`, 30, 60_000)) {
+      return res.status(429).json({ error: "Too many secretary requests" });
+    }
+    if (callId) {
+      const { db } = getFirebaseAdmin();
+      const callSnap = await db.collection("calls").doc(String(callId)).get();
+      if (!callSnap.exists) {
+        return res.status(404).json({ error: "Call not found" });
+      }
+      const call = callSnap.data() || {};
+      const requesterEmail = String(decodedToken.email).toLowerCase();
+      const callerEmail = String(call.callerEmail || "").toLowerCase();
+      const receiverEmail = String(call.receiverEmail || "").toLowerCase();
+      if (requesterEmail !== callerEmail && requesterEmail !== receiverEmail) {
+        return res.status(403).json({ error: "You are not allowed to use this secretary session" });
+      }
+    }
+
     const ai = getGemini();
     
     // Prepare parts for the prompt contents
@@ -397,6 +460,46 @@ wss.on("connection", async (clientWs, req) => {
   const myLang = urlObj.searchParams.get("myLang") || "en";
   const partnerLang = urlObj.searchParams.get("partnerLang") || "es";
   const voice = urlObj.searchParams.get("voice") || "Aoede";
+  const token = urlObj.searchParams.get("token") || "";
+  const callId = urlObj.searchParams.get("callId") || "";
+
+  let decodedToken: Awaited<ReturnType<typeof verifyBearerToken>> = null;
+  try {
+    decodedToken = await verifyBearerToken(token ? `Bearer ${token}` : undefined);
+    if (!decodedToken?.email) {
+      clientWs.send(JSON.stringify({ error: "Authentication required" }));
+      clientWs.close();
+      return;
+    }
+    if (!checkRateLimit(`translate:${decodedToken.uid}`, 6, 60_000)) {
+      clientWs.send(JSON.stringify({ error: "Too many translation sessions" }));
+      clientWs.close();
+      return;
+    }
+    if (callId) {
+      const { db } = getFirebaseAdmin();
+      const callSnap = await db.collection("calls").doc(callId).get();
+      if (!callSnap.exists) {
+        clientWs.send(JSON.stringify({ error: "Call not found" }));
+        clientWs.close();
+        return;
+      }
+      const call = callSnap.data() || {};
+      const requesterEmail = String(decodedToken.email).toLowerCase();
+      const callerEmail = String(call.callerEmail || "").toLowerCase();
+      const receiverEmail = String(call.receiverEmail || "").toLowerCase();
+      if (requesterEmail !== callerEmail && requesterEmail !== receiverEmail) {
+        clientWs.send(JSON.stringify({ error: "You are not allowed to translate this call" }));
+        clientWs.close();
+        return;
+      }
+    }
+  } catch (error) {
+    console.error("Translate Live authentication failed:", error);
+    clientWs.send(JSON.stringify({ error: "Authentication failed" }));
+    clientWs.close();
+    return;
+  }
   
   // Set up system prompt
   const systemInstruction = `You are a real-time interpreter. Listen to the incoming audio. Instantly translate the speaker's words into the target language selected by the user. Output the translation as natural, conversational audio, and provide the exact text transcript.

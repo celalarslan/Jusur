@@ -34,6 +34,7 @@ import {
   requestGoogleWorkspaceAccess,
   initAuth, 
   logout, 
+  getCurrentIdToken,
   createCallDoc, 
   createCallLogDoc,
   updateCallDoc, 
@@ -556,11 +557,14 @@ export default function App() {
         status: "ringing"
       });
 
-      fetch("/api/notify/incoming-call", {
+      getCurrentIdToken().then((idToken) => fetch("/api/notify/incoming-call", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Authorization": `Bearer ${idToken}`,
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({ callId: callDocId })
-      }).catch((notifyError) => {
+      })).catch((notifyError) => {
         console.warn("Incoming call push notification failed:", notifyError);
       });
 
@@ -1032,28 +1036,32 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 mt-4">
-                    <button
-                      type="button"
-                      onClick={() => handleManualDialCall("audio")}
-                      disabled={!manualDialInput.trim()}
-                      className="h-16 rounded-2xl bg-gradient-to-br from-emerald-300 to-cyan-300 text-slate-950 font-black flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition shadow-[0_0_28px_rgba(45,212,191,0.22)]"
-                    >
-                      <Phone className="w-5 h-5" />
-                      <span>{t("audio")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleManualDialCall("video")}
-                      disabled={!manualDialInput.trim()}
-                      className="h-16 rounded-2xl bg-gradient-to-br from-fuchsia-400 to-blue-400 text-white font-black flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition shadow-[0_0_28px_rgba(96,165,250,0.24)]"
-                    >
-                      <Video className="w-5 h-5" />
-                      <span>{t("video")}</span>
-                    </button>
-                  </div>
+                  {activePanel === "home" && (
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      <button
+                        type="button"
+                        onClick={() => handleManualDialCall("audio")}
+                        disabled={!manualDialInput.trim()}
+                        className="h-16 rounded-2xl bg-gradient-to-br from-emerald-300 to-cyan-300 text-slate-950 font-black flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition shadow-[0_0_28px_rgba(45,212,191,0.22)]"
+                      >
+                        <Phone className="w-5 h-5" />
+                        <span>{t("audio")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleManualDialCall("video")}
+                        disabled={!manualDialInput.trim()}
+                        className="h-16 rounded-2xl bg-gradient-to-br from-fuchsia-400 to-blue-400 text-white font-black flex items-center justify-center gap-2 disabled:opacity-35 active:scale-[0.98] transition shadow-[0_0_28px_rgba(96,165,250,0.24)]"
+                      >
+                        <Video className="w-5 h-5" />
+                        <span>{t("video")}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
+                {activePanel === "home" && (
+                <>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-2xl border border-cyan-300/10 bg-white/[0.04] p-3">
                     <Languages className="w-4 h-4 text-cyan-200 mb-2" />
@@ -1125,10 +1133,12 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                </>
+                )}
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-black tracking-tight">{t("chats")}</h2>
+                    <h2 className="text-base font-black tracking-tight">{activePanel === "contacts" ? "Contacts" : t("chats")}</h2>
                     <p className="text-[11px] text-slate-500 font-semibold">{filteredContacts.length} {t("readyContacts")}</p>
                   </div>
                   <button

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Phone, PhoneOff, Video } from "lucide-react";
 import { CallDocument } from "../types";
 import { motion } from "motion/react";
@@ -10,6 +10,45 @@ interface IncomingOverlayProps {
 }
 
 export function IncomingOverlay({ incomingCall, onAccept, onDecline }: IncomingOverlayProps) {
+  useEffect(() => {
+    let audioContext: AudioContext | null = null;
+    let oscillator: OscillatorNode | null = null;
+    let gain: GainNode | null = null;
+    let vibrateTimer: number | null = null;
+
+    const startRing = () => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        audioContext = new AudioContextClass();
+        oscillator = audioContext.createOscillator();
+        gain = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.value = 880;
+        gain.gain.value = 0.03;
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start();
+      } catch {
+        audioContext = null;
+      }
+    };
+
+    startRing();
+    if ("vibrate" in navigator) {
+      navigator.vibrate([700, 350, 700]);
+      vibrateTimer = window.setInterval(() => navigator.vibrate([700, 350, 700]), 2600);
+    }
+
+    return () => {
+      if (vibrateTimer) window.clearInterval(vibrateTimer);
+      if ("vibrate" in navigator) navigator.vibrate(0);
+      oscillator?.stop();
+      oscillator?.disconnect();
+      gain?.disconnect();
+      audioContext?.close().catch(() => {});
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md text-white p-6">
       
