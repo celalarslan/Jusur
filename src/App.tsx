@@ -1147,7 +1147,7 @@ export default function App() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-black tracking-tight">{activePanel === "contacts" ? "Contacts" : "Signal list"}</h2>
+                    <h2 className="text-base font-black tracking-tight">{activePanel === "contacts" ? "Contacts" : "Signal List"}</h2>
                     <p className="text-[11px] text-slate-500 font-semibold">
                       {activePanel === "home" ? `${visibleCallLogs.length} recent · ${filteredContacts.length} contacts` : `${filteredContacts.length} ${t("readyContacts")}`}
                     </p>
@@ -1185,7 +1185,7 @@ export default function App() {
                         isRegistered: registeredEmails.has(otherEmail.toLowerCase())
                       };
                       return (
-                        <div key={`log-${log.id}`} className="rounded-[22px] border border-white/10 bg-slate-950/70 px-3 py-2.5 flex items-center gap-3">
+                        <div key={`log-${log.id}`} className="rounded-[18px] border border-white/8 bg-slate-950/55 px-3 py-2 flex items-center gap-3">
                           <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${log.status === "missed" ? "bg-rose-500/10 border-rose-300/20 text-rose-200" : "bg-cyan-300/10 border-cyan-300/20 text-cyan-100"}`}>
                             <History className="w-4 h-4" />
                           </div>
@@ -1208,7 +1208,7 @@ export default function App() {
                     {visibleContacts.map((contact) => (
                       <div
                         key={contact.resourceName}
-                        className={`rounded-[24px] border p-3 flex items-center gap-3 transition ${
+                        className={`rounded-[18px] border px-3 py-2.5 flex items-center gap-3 transition ${
                           contact.isRegistered
                             ? "border-cyan-300/20 bg-white/[0.07]"
                             : "border-white/5 bg-white/[0.025] opacity-55 grayscale"

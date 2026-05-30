@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, PhoneOff, Globe, Video, VideoOff, Loader2, Send, MessageCircle } from "lucide-react";
+import { Mic, MicOff, PhoneOff, Globe, Video, VideoOff, Loader2, Send, MessageCircle, Activity, Clock3 } from "lucide-react";
 import { CallDocument, CallMessage } from "../types";
 import { updateCallDoc, deleteCallDoc, getCurrentIdToken } from "../firebase";
 
@@ -62,6 +62,7 @@ export function ActiveCallScreen({
   const [partnerMuted, setPartnerMuted] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "failed" | "loopback_mode">("connecting");
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // References
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -87,6 +88,13 @@ export function ActiveCallScreen({
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcripts]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((value) => value + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Establish WebRTC audio/video connection via Firestore signaling.
   useEffect(() => {
@@ -610,6 +618,21 @@ export function ActiveCallScreen({
   };
 
   const callMessages = call.messages || [];
+  const callDuration = `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
+  const connectionLabel =
+    connectionStatus === "connected"
+      ? "Stable"
+      : connectionStatus === "loopback_mode"
+        ? "Test"
+        : connectionStatus === "failed"
+          ? "Unstable"
+          : "Connecting";
+  const connectionClass =
+    connectionStatus === "connected"
+      ? "border-cyan-300/25 bg-cyan-300/12 text-cyan-100"
+      : connectionStatus === "failed"
+        ? "border-rose-300/25 bg-rose-500/15 text-rose-100"
+        : "border-amber-300/25 bg-amber-300/12 text-amber-100";
 
   return (
     <div className="fixed inset-0 z-[80] bg-black text-neutral-100 font-sans overflow-hidden">
@@ -650,12 +673,19 @@ export function ActiveCallScreen({
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/70 font-black">Jusur call</p>
             <h1 className="text-2xl font-black truncate">{partnerName}</h1>
-            <div className="mt-1 flex items-center gap-2 text-[11px] font-bold">
-              {connectionStatus === "connecting" && <span className="text-amber-300">Connecting</span>}
-              {connectionStatus === "connected" && <span className="text-cyan-200">Audio/video active</span>}
-              {connectionStatus === "loopback_mode" && <span className="text-slate-300">Loopback test</span>}
-              {connectionStatus === "failed" && <span className="text-rose-300">Signal unstable</span>}
-              <span className="text-slate-500">Interpreter {isInterpreterOn ? "on" : "ready"}</span>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-black">
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-slate-100">
+                <Clock3 className="w-3 h-3 text-cyan-100" />
+                {callDuration}
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${connectionClass}`}>
+                <Activity className="w-3 h-3" />
+                {connectionLabel}
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${isInterpreterOn ? "border-violet-300/30 bg-violet-400/20 text-violet-100" : "border-white/10 bg-black/25 text-slate-400"}`}>
+                <Globe className="w-3 h-3" />
+                {isInterpreterOn ? "Interpreter on" : "Interpreter ready"}
+              </span>
             </div>
           </div>
         </div>
