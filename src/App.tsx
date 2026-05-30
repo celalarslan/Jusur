@@ -42,6 +42,7 @@ import {
   listenIncomingCalls, 
   listenSingleCall,
   fetchVoicemails,
+  deleteVoicemailDoc,
   saveSecretaryProfile,
   fetchCallLogs,
   fetchRegisteredUserEmails,
@@ -89,6 +90,11 @@ const QUICK_LANGUAGES = [
   { value: "French (Français)", label: "French" },
   { value: "German (Deutsch)", label: "German" }
 ];
+
+type AppToast = {
+  tone: "info" | "success" | "warning" | "error";
+  message: string;
+};
 
 const getContactLibraryKey = (email: string) => `jusur_contact_library_${email.toLowerCase()}`;
 
@@ -139,6 +145,7 @@ export default function App() {
   );
   const [secretaryProfileStatus, setSecretaryProfileStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [notificationStatus, setNotificationStatus] = useState<"idle" | "enabling" | "enabled" | "error">("idle");
+  const [toast, setToast] = useState<AppToast | null>(null);
 
   // Phonebook contacts
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -167,6 +174,23 @@ export default function App() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const singleCallUnsubscribeRef = useRef<(() => void) | null>(null);
   const incomingCallsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = (message: string, tone: AppToast["tone"] = "info") => {
+    setToast({ message, tone });
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 4200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 1. Listen for Authentication state changes
   useEffect(() => {
@@ -337,6 +361,19 @@ export default function App() {
     }
   };
 
+  const handleDeleteVoicemail = async (voicemailId: string) => {
+    const previousVoicemails = voicemails;
+    setVoicemails((current) => current.filter((voicemail) => voicemail.id !== voicemailId));
+    try {
+      await deleteVoicemailDoc(voicemailId);
+      showToast("Secretary message deleted.", "success");
+    } catch (error) {
+      console.error("Failed deleting voicemail:", error);
+      setVoicemails(previousVoicemails);
+      showToast("Could not delete the secretary message.", "error");
+    }
+  };
+
   const requestCallPermissions = async () => {
     setPermissionStatus("requesting");
     try {
@@ -347,7 +384,7 @@ export default function App() {
     } catch (error) {
       console.error("Media permission request failed:", error);
       setPermissionStatus("error");
-      alert("Camera/microphone permission is required for calls. Open Android App info > Permissions and allow Camera and Microphone.");
+      showToast("Camera/microphone permission is required for calls.", "warning");
     }
   };
 
@@ -358,7 +395,7 @@ export default function App() {
       if (type === "fullscreen") await openNativeFullScreenIntentSettings();
     } catch (error) {
       console.error("Native settings could not be opened:", error);
-      alert("Could not open Android settings automatically. Open App info for Jusur manually.");
+      showToast("Could not open Android settings automatically.", "warning");
     }
   };
 
@@ -438,7 +475,7 @@ export default function App() {
     } catch (error) {
       console.error("Notification registration failed:", error);
       setNotificationStatus("error");
-      alert(error instanceof Error ? error.message : "Could not enable notifications.");
+      showToast(error instanceof Error ? error.message : "Could not enable notifications.", "error");
     }
   };
 
@@ -455,7 +492,7 @@ export default function App() {
     } catch (error) {
       console.error("Secretary profile save failed:", error);
       setSecretaryProfileStatus("error");
-      alert(error instanceof Error ? error.message : "Could not save secretary profile.");
+      showToast(error instanceof Error ? error.message : "Could not save secretary profile.", "error");
     }
   };
 
@@ -588,7 +625,7 @@ export default function App() {
 
     } catch (err: any) {
       console.error("Calling origin step failure:", err);
-      alert(`Call failed: ${err.message || "Please check your account connection and try again."}`);
+      showToast(`Call failed: ${err.message || "Please check your account connection and try again."}`, "error");
       setDialState("idle");
     }
   };
@@ -624,7 +661,7 @@ export default function App() {
             updateCallLogDoc(callLogId, { status: callDoc.status }).catch((error) => console.warn("Call log update failed:", error));
           }
           handleCancelOutgoing();
-          alert(`${targetName} is busy or declined the call.`);
+          showToast(`${targetName} is busy or declined the call.`, "warning");
         }
       },
       (error) => {
@@ -773,7 +810,7 @@ export default function App() {
     if (!input) return;
     const isEmail = input.includes("@");
     if (isEmail && registeredEmails.size > 0 && !registeredEmails.has(input.toLowerCase())) {
-      alert("This email is not registered on Jusur yet. Ask the person to create an account first.");
+      showToast("This email is not registered on Jusur yet.", "warning");
       return;
     }
     const manualContact: Contact = {
@@ -788,7 +825,7 @@ export default function App() {
   const handleSaveManualContact = () => {
     const email = manualDialInput.trim().toLowerCase();
     if (!email || !email.includes("@")) {
-      alert("Enter an email address to add a contact.");
+      showToast("Enter an email address to add a contact.", "warning");
       return;
     }
 
@@ -802,6 +839,7 @@ export default function App() {
     saveStoredContactLibrary(nextStoredLibrary);
     setContacts((previous) => markRegisteredContacts(mergeContactLists(previous, nextStoredLibrary)));
     setSearchQuery("");
+    showToast("Contact added to your library.", "success");
   };
 
   // Filter contacts by search query
@@ -1399,7 +1437,7 @@ export default function App() {
                     {isLoadingVoicemails ? (
                       <div className="py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-violet-200" /></div>
                     ) : (
-                      <VoicemailsList voicemails={voicemails} />
+                      <VoicemailsList voicemails={voicemails} onDelete={handleDeleteVoicemail} />
                     )}
                   </div>
                 </div>
@@ -1476,6 +1514,25 @@ export default function App() {
       </main>
 
       <AnimatePresence>
+        {toast && (
+          <motion.div
+            key="app-toast"
+            initial={{ opacity: 0, y: 18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.98 }}
+            className={`fixed left-4 right-4 bottom-24 z-[120] mx-auto max-w-[390px] rounded-2xl border px-4 py-3 text-xs font-bold shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl ${
+              toast.tone === "success"
+                ? "border-emerald-300/25 bg-emerald-300/15 text-emerald-100"
+                : toast.tone === "warning"
+                  ? "border-amber-300/25 bg-amber-300/15 text-amber-100"
+                  : toast.tone === "error"
+                    ? "border-rose-300/25 bg-rose-500/15 text-rose-100"
+                    : "border-cyan-300/25 bg-cyan-300/15 text-cyan-100"
+            }`}
+          >
+            {toast.message}
+          </motion.div>
+        )}
         {incomingCall && (
           <IncomingOverlay incomingCall={incomingCall} onAccept={handleAcceptIncoming} onDecline={handleDeclineIncoming} />
         )}

@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { Mail, Calendar, ChevronDown, ChevronUp, AlignLeft } from "lucide-react";
+import { Mail, Calendar, ChevronDown, ChevronUp, AlignLeft, Trash2 } from "lucide-react";
 import { VoicemailDocument } from "../types";
 
 interface VoicemailsListProps {
   voicemails: VoicemailDocument[];
+  onDelete?: (voicemailId: string) => void;
 }
 
-export function VoicemailsList({ voicemails }: VoicemailsListProps) {
+export function VoicemailsList({ voicemails, onDelete }: VoicemailsListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const toggleExpand = (id: string) => {
@@ -100,6 +101,17 @@ export function VoicemailsList({ voicemails }: VoicemailsListProps) {
                     Logged: {formattedDate}
                   </span>
                 </div>
+
+                {onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(voicemail.id)}
+                    className="w-full h-10 rounded-xl border border-rose-400/20 bg-rose-500/10 text-rose-200 text-[11px] font-black flex items-center justify-center gap-2 active:scale-[0.98] transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete message
+                  </button>
+                )}
               </div>
             )}
           </div>

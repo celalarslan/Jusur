@@ -500,3 +500,12 @@ export const fetchVoicemails = async (receiverEmail: string): Promise<VoicemailD
     return [];
   }
 };
+
+export const deleteVoicemailDoc = async (voicemailId: string): Promise<void> => {
+  const pathOfDoc = `voicemails/${voicemailId}`;
+  try {
+    await deleteDoc(doc(db, "voicemails", voicemailId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, pathOfDoc);
+  }
+};
