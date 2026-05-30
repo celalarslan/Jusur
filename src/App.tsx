@@ -27,7 +27,9 @@ import {
   Bell,
   ShieldCheck,
   Download,
-  Send
+  Send,
+  Check,
+  CheckCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -179,6 +181,14 @@ const formatMessageTime = (timestamp: any) => {
   const date = timestamp?.toDate?.() || (typeof timestamp?.toMillis === "function" ? new Date(timestamp.toMillis()) : null);
   if (!date) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
+
+const getMessageStatus = (message: DirectMessageDocument, currentUserEmail?: string | null) => {
+  const myEmail = currentUserEmail?.toLowerCase();
+  if (!myEmail || message.senderEmail !== myEmail) return "incoming";
+  if (message.id.startsWith("local-")) return "sent";
+  if (message.readBy?.some((email) => email.toLowerCase() !== myEmail)) return "read";
+  return "delivered";
 };
 
 export default function App() {
@@ -1600,121 +1610,143 @@ export default function App() {
             )}
 
             {activePanel === "messages" && dialState === "idle" && (
-              <div className="space-y-4 pb-24">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl font-black tracking-tight">Messages</h2>
-                    <p className="text-xs text-slate-500">Text contacts without starting a call.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={loadDirectMessages}
-                    className="h-9 px-3 rounded-full border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 text-[11px] font-black active:scale-95 transition"
-                  >
-                    Refresh
-                  </button>
-                </div>
-
-                <div className="rounded-[26px] border border-white/10 bg-white/[0.045] overflow-hidden">
-                  <div className="max-h-48 overflow-y-auto p-2 space-y-1 border-b border-white/10">
-                    {isLoadingMessages ? (
-                      <div className="h-24 flex items-center justify-center text-cyan-200">
-                        <Loader2 className="w-5 h-5 animate-spin" />
+              <div className="pb-24 min-h-[calc(100vh-170px)] flex flex-col">
+                {!selectedMessageContact ? (
+                  <>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h2 className="text-xl font-black tracking-tight">Messages</h2>
+                        <p className="text-xs text-slate-500">Text contacts without starting a call.</p>
                       </div>
-                    ) : messageContacts.length === 0 ? (
-                      <div className="p-5 text-center text-xs text-slate-500 font-semibold">
-                        Add or sync contacts to start messaging.
-                      </div>
-                    ) : (
-                      messageContacts.map((contact) => {
-                        const lastMessage = directMessages.find((message) => message.participants.includes(contact.email.toLowerCase()));
-                        const unreadCount = unreadCountsByEmail.get(contact.email.toLowerCase()) || 0;
-                        const active = selectedMessageContact?.email.toLowerCase() === contact.email.toLowerCase();
-                        return (
-                          <button
-                            key={`msg-${contact.resourceName}`}
-                            type="button"
-                            onClick={() => openMessagesForContact(contact)}
-                            className={`w-full rounded-2xl px-3 py-2.5 flex items-center gap-3 text-left transition ${
-                              active ? "bg-cyan-300 text-slate-950" : "bg-slate-950/55 text-white"
-                            }`}
-                          >
-                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black shrink-0 ${active ? "bg-slate-950/10" : "bg-cyan-300/10 text-cyan-100"}`}>
-                              {contact.name[0] || "?"}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-black truncate">{contact.name}</p>
-                              <p className={`text-[10px] truncate ${active ? "text-slate-800" : "text-slate-500"}`}>
-                                {lastMessage?.text || contact.email}
-                              </p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1 shrink-0">
-                              <span className={`text-[9px] font-bold ${active ? "text-slate-800" : "text-slate-600"}`}>
-                                {formatMessageTime(lastMessage?.timestamp)}
-                              </span>
-                              {unreadCount > 0 && (
-                                <span className="min-w-5 h-5 px-1.5 rounded-full bg-emerald-300 text-slate-950 text-[10px] font-black flex items-center justify-center">
-                                  {unreadCount > 9 ? "9+" : unreadCount}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
+                      <button
+                        type="button"
+                        onClick={loadDirectMessages}
+                        className="h-9 px-3 rounded-full border border-sky-300/15 bg-sky-300/8 text-sky-100 text-[11px] font-black active:scale-95 transition"
+                      >
+                        Refresh
+                      </button>
+                    </div>
 
-                  <div className="p-3 min-h-[300px] flex flex-col">
-                    {selectedMessageContact ? (
-                      <>
-                        <div className="mb-3">
-                          <p className="text-sm font-black truncate">{selectedMessageContact.name}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{selectedMessageContact.email}</p>
+                    <div className="space-y-2">
+                      {isLoadingMessages ? (
+                        <div className="h-40 flex items-center justify-center text-sky-200">
+                          <Loader2 className="w-5 h-5 animate-spin" />
                         </div>
-                        <div className="flex-1 max-h-64 overflow-y-auto space-y-2 pr-1">
-                          {selectedThreadMessages.length === 0 ? (
-                            <div className="h-40 flex items-center justify-center text-center text-xs text-slate-500 font-semibold">
-                              No messages yet. Send the first one.
-                            </div>
-                          ) : selectedThreadMessages.map((message) => {
-                            const mine = message.senderEmail === user.email?.toLowerCase();
-                            return (
-                              <div key={message.id} className={`max-w-[84%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${mine ? "ml-auto bg-cyan-300 text-slate-950" : "mr-auto bg-slate-900 text-slate-100 border border-white/10"}`}>
-                                {message.text}
+                      ) : messageContacts.length === 0 ? (
+                        <div className="py-16 text-center">
+                          <MessageCircle className="w-10 h-10 text-sky-200/50 mx-auto mb-3" />
+                          <p className="text-sm font-black">No message contacts yet</p>
+                          <p className="text-xs text-slate-500 mt-1">Add or sync contacts to start messaging.</p>
+                        </div>
+                      ) : (
+                        messageContacts.map((contact) => {
+                          const lastMessage = directMessages.find((message) => message.participants.includes(contact.email.toLowerCase()));
+                          const unreadCount = unreadCountsByEmail.get(contact.email.toLowerCase()) || 0;
+                          return (
+                            <button
+                              key={`msg-${contact.resourceName}`}
+                              type="button"
+                              onClick={() => openMessagesForContact(contact)}
+                              className="w-full rounded-[18px] px-3 py-3 flex items-center gap-3 text-left transition bg-slate-950/45 hover:bg-white/[0.055] border border-white/[0.06]"
+                            >
+                              <div className="w-11 h-11 rounded-2xl flex items-center justify-center font-black shrink-0 bg-sky-300/10 text-sky-100 border border-sky-300/10">
+                                {contact.name[0] || "?"}
                               </div>
-                            );
-                          })}
-                        </div>
-                        <form onSubmit={handleSendDirectMessage} className="mt-3 flex items-center gap-2">
-                          <input
-                            value={messageDraft}
-                            onChange={(event) => setMessageDraft(event.target.value)}
-                            placeholder="Write a message..."
-                            dir="auto"
-                            inputMode="text"
-                            autoCapitalize="sentences"
-                            enterKeyHint="send"
-                            className="min-w-0 flex-1 h-12 rounded-2xl bg-slate-950 border border-white/10 px-4 text-sm font-semibold outline-none focus:border-cyan-300/40"
-                          />
-                          <button
-                            type="submit"
-                            disabled={!messageDraft.trim()}
-                            className="h-12 w-12 rounded-2xl bg-cyan-300 text-slate-950 flex items-center justify-center disabled:opacity-40"
-                            title="Send"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        </form>
-                      </>
-                    ) : (
-                      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-                        <MessageCircle className="w-9 h-9 text-cyan-200/60 mb-3" />
-                        <p className="text-sm font-black">Select a contact</p>
-                        <p className="text-xs text-slate-500 mt-1">Your messages stay available after calls end.</p>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-black truncate">{contact.name}</p>
+                                <p className="text-[11px] truncate text-slate-500">
+                                  {lastMessage?.text || contact.email}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                <span className="text-[9px] font-bold text-slate-600">
+                                  {formatMessageTime(lastMessage?.timestamp)}
+                                </span>
+                                {unreadCount > 0 && (
+                                  <span className="min-w-5 h-5 px-1.5 rounded-full bg-emerald-300 text-slate-950 text-[10px] font-black flex items-center justify-center">
+                                    {unreadCount > 9 ? "9+" : unreadCount}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="min-h-0 flex-1 flex flex-col">
+                    <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMessageContact(null)}
+                        className="h-10 w-10 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center active:scale-95"
+                        title="Back to messages"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-black shrink-0 bg-sky-300/10 text-sky-100 border border-sky-300/10">
+                        {selectedMessageContact.name[0] || "?"}
                       </div>
-                    )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-black truncate">{selectedMessageContact.name}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{selectedMessageContact.email}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInitiateCall(selectedMessageContact, "audio")}
+                        disabled={!selectedMessageContact.isRegistered}
+                        className="h-10 w-10 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition disabled:opacity-35"
+                        title="Audio call"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex-1 min-h-[360px] overflow-y-auto space-y-2 py-4 pr-1">
+                      {selectedThreadMessages.length === 0 ? (
+                        <div className="h-64 flex items-center justify-center text-center text-xs text-slate-500 font-semibold">
+                          No messages yet. Send the first one.
+                        </div>
+                      ) : selectedThreadMessages.map((message) => {
+                        const mine = message.senderEmail === user.email?.toLowerCase();
+                        const status = getMessageStatus(message, user.email);
+                        return (
+                          <div key={message.id} className={`max-w-[84%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${mine ? "ml-auto bg-[#38c7d4] text-slate-950 rounded-br-md" : "mr-auto bg-slate-900/90 text-slate-100 border border-white/10 rounded-bl-md"}`}>
+                            <p>{message.text}</p>
+                            <div className={`mt-1 flex items-center justify-end gap-1 text-[9px] font-bold ${mine ? "text-slate-800/75" : "text-slate-500"}`}>
+                              <span>{formatMessageTime(message.timestamp)}</span>
+                              {mine && status === "sent" && <Check className="w-3 h-3" />}
+                              {mine && status === "delivered" && <CheckCheck className="w-3 h-3" />}
+                              {mine && status === "read" && <CheckCheck className="w-3 h-3 text-white" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <form onSubmit={handleSendDirectMessage} className="pt-3 flex items-center gap-2 border-t border-white/10">
+                      <input
+                        value={messageDraft}
+                        onChange={(event) => setMessageDraft(event.target.value)}
+                        placeholder="Write a message..."
+                        dir="auto"
+                        inputMode="text"
+                        autoCapitalize="sentences"
+                        enterKeyHint="send"
+                        className="min-w-0 flex-1 h-12 rounded-2xl bg-slate-950/80 border border-white/10 px-4 text-sm font-semibold outline-none focus:border-sky-300/35"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!messageDraft.trim()}
+                        className="h-12 w-12 rounded-2xl bg-[#2f8794] text-white flex items-center justify-center disabled:opacity-40 active:scale-95 transition"
+                        title="Send"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </form>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
