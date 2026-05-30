@@ -6,7 +6,6 @@ import {
 import { 
   Phone, 
   Search, 
-  Trash2, 
   Sparkles, 
   User as UserIcon, 
   LogOut, 
@@ -811,6 +810,8 @@ export default function App() {
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const visibleContacts = activePanel === "home" ? filteredContacts.slice(0, 8) : filteredContacts;
+  const visibleCallLogs = activePanel === "home" ? callLogs.slice(0, 4) : [];
 
   // App loading spinner
   if (appLoading) {
@@ -1103,43 +1104,15 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="rounded-[26px] border border-white/10 bg-white/[0.045] p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <History className="w-4 h-4 text-cyan-200" />
-                      <h2 className="text-sm font-black tracking-tight">Recent calls</h2>
-                    </div>
-                    <button type="button" onClick={loadRegisteredUsersAndCallLogs} className="text-[11px] font-black text-cyan-200">Refresh</button>
-                  </div>
-                  {isLoadingCallLogs ? (
-                    <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-cyan-200" /></div>
-                  ) : callLogs.length === 0 ? (
-                    <p className="text-center text-[11px] text-slate-500 font-semibold py-4">No calls recorded yet.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {callLogs.slice(0, 4).map((log) => {
-                        const otherName = log.direction === "incoming" ? log.callerName : (log.receiverName || log.receiverEmail);
-                        const formattedDate = log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "";
-                        return (
-                          <div key={log.id} className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-xs font-black truncate">{otherName}</p>
-                              <p className="text-[10px] text-slate-500 truncate">{log.direction || "call"} · {log.mode} · {log.status}</p>
-                            </div>
-                            <span className="text-[9px] text-slate-600 shrink-0">{formattedDate.split(",")[0]}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
                 </>
                 )}
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-black tracking-tight">{activePanel === "contacts" ? "Contacts" : t("chats")}</h2>
-                    <p className="text-[11px] text-slate-500 font-semibold">{filteredContacts.length} {t("readyContacts")}</p>
+                    <h2 className="text-base font-black tracking-tight">{activePanel === "contacts" ? "Contacts" : "Signal list"}</h2>
+                    <p className="text-[11px] text-slate-500 font-semibold">
+                      {activePanel === "home" ? `${visibleCallLogs.length} recent · ${filteredContacts.length} contacts` : `${filteredContacts.length} ${t("readyContacts")}`}
+                    </p>
                   </div>
                   <button
                     type="button"
@@ -1151,18 +1124,50 @@ export default function App() {
                 </div>
 
                 <div className="space-y-2">
-                  {isLoadingContacts ? (
+                  {isLoadingContacts || (activePanel === "home" && isLoadingCallLogs) ? (
                     <div className="h-40 flex items-center justify-center text-cyan-200">
                       <Loader2 className="w-6 h-6 animate-spin" />
                     </div>
-                  ) : filteredContacts.length === 0 ? (
+                  ) : filteredContacts.length === 0 && visibleCallLogs.length === 0 ? (
                     <div className="rounded-[26px] border border-white/10 bg-white/[0.04] p-7 text-center">
                       <PhoneCall className="w-8 h-8 text-cyan-200/60 mx-auto mb-3" />
                       <p className="text-sm font-black">{t("noContacts")}</p>
                       <p className="text-xs text-slate-500 mt-1">{t("noContactsHint")}</p>
                     </div>
                   ) : (
-                    filteredContacts.map((contact) => (
+                    <>
+                    {visibleCallLogs.map((log) => {
+                      const otherName = log.direction === "incoming" ? log.callerName : (log.receiverName || log.receiverEmail);
+                      const otherEmail = log.direction === "incoming" ? log.callerEmail : log.receiverEmail;
+                      const formattedDate = log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : "";
+                      const callContact: Contact = {
+                        name: otherName,
+                        email: otherEmail,
+                        resourceName: `call-log-contact-${log.id}`,
+                        isRegistered: registeredEmails.has(otherEmail.toLowerCase())
+                      };
+                      return (
+                        <div key={`log-${log.id}`} className="rounded-[22px] border border-white/10 bg-slate-950/70 px-3 py-2.5 flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${log.status === "missed" ? "bg-rose-500/10 border-rose-300/20 text-rose-200" : "bg-cyan-300/10 border-cyan-300/20 text-cyan-100"}`}>
+                            <History className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-black truncate">{otherName}</h3>
+                            <p className="text-[10px] text-slate-500 truncate">{log.direction || "call"} · {log.mode} · {log.status} · {formattedDate.split(",")[0]}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleInitiateCall(callContact, log.mode)}
+                            disabled={!callContact.isRegistered}
+                            className="h-9 w-9 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition disabled:opacity-35"
+                            title="Call back"
+                          >
+                            <Phone className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {visibleContacts.map((contact) => (
                       <div
                         key={contact.resourceName}
                         className={`rounded-[24px] border p-3 flex items-center gap-3 transition ${
@@ -1203,7 +1208,8 @@ export default function App() {
                           <Video className="w-4 h-4" />
                         </button>
                       </div>
-                    ))
+                    ))}
+                    </>
                   )}
                 </div>
               </div>

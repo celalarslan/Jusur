@@ -53,7 +53,7 @@ export function ActiveCallScreen({
   const [selectedVoice, setSelectedVoice] = useState(initialVoice);
   const [transcripts, setTranscripts] = useState<{ sender: string; text: string; id: number }[]>([]);
   const [messageText, setMessageText] = useState("");
-  const [activeTray, setActiveTray] = useState<"translate" | "messages">("translate");
+  const [activeTray, setActiveTray] = useState<"translate" | "messages" | null>(null);
   const [pipPosition, setPipPosition] = useState({ x: 18, y: 96 });
 
   // WebRTC & Audio States
@@ -667,7 +667,8 @@ export function ActiveCallScreen({
         </div>
       )}
 
-      <div className="absolute inset-x-3 bottom-24 z-20 rounded-[28px] border border-white/10 bg-slate-950/88 backdrop-blur-xl shadow-[0_18px_70px_rgba(0,0,0,0.55)] overflow-hidden">
+      {activeTray && (
+      <div className="absolute inset-x-3 bottom-28 z-20 rounded-[28px] border border-white/10 bg-slate-950/90 backdrop-blur-xl shadow-[0_18px_70px_rgba(0,0,0,0.55)] overflow-hidden">
         <div className="grid grid-cols-2 p-1 border-b border-white/10">
           <button
             type="button"
@@ -760,17 +761,32 @@ export function ActiveCallScreen({
           </div>
         )}
       </div>
+      )}
 
       <div className="absolute inset-x-0 bottom-0 z-30 px-5 pb-6 pt-12 bg-gradient-to-t from-black/90 to-transparent">
-        <div className="flex items-center justify-center gap-5">
+        <div className="flex items-center justify-center gap-3">
           <button onClick={toggleMic} id="btn-toggle-mic" className={`h-14 w-14 rounded-full flex items-center justify-center border ${micMuted ? "bg-rose-500/20 border-rose-300/30 text-rose-200" : "bg-white/12 border-white/15 text-white"}`}>
             {micMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
           </button>
-          <button onClick={handleHangUp} id="btn-active-hang-up" className="h-16 w-16 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-[0_0_34px_rgba(225,29,72,0.38)]">
-            <PhoneOff className="w-7 h-7" />
-          </button>
           <button onClick={toggleCamera} id="btn-toggle-camera" className={`h-14 w-14 rounded-full flex items-center justify-center border ${cameraOff ? "bg-amber-500/20 border-amber-300/30 text-amber-200" : "bg-white/12 border-white/15 text-white"}`}>
             {cameraOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+          </button>
+          <button
+            onClick={() => setActiveTray(activeTray === "translate" ? null : "translate")}
+            id="btn-open-translate"
+            className={`h-14 w-14 rounded-full flex items-center justify-center border ${activeTray === "translate" || isInterpreterOn ? "bg-violet-400/25 border-violet-200/40 text-violet-100 shadow-[0_0_24px_rgba(168,85,247,0.28)]" : "bg-white/12 border-white/15 text-white"}`}
+          >
+            <Globe className="w-6 h-6" />
+          </button>
+          <button
+            onClick={() => setActiveTray(activeTray === "messages" ? null : "messages")}
+            id="btn-open-messages"
+            className={`h-14 w-14 rounded-full flex items-center justify-center border ${activeTray === "messages" ? "bg-cyan-300/25 border-cyan-200/40 text-cyan-100" : "bg-white/12 border-white/15 text-white"}`}
+          >
+            <MessageCircle className="w-6 h-6" />
+          </button>
+          <button onClick={handleHangUp} id="btn-active-hang-up" className="h-16 w-16 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-[0_0_34px_rgba(225,29,72,0.38)]">
+            <PhoneOff className="w-7 h-7" />
           </button>
         </div>
       </div>
