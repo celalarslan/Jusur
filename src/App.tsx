@@ -49,6 +49,7 @@ import {
   fetchVoicemails,
   deleteVoicemailDoc,
   saveSecretaryProfile,
+  fetchSecretaryProfile,
   fetchCallLogs,
   fetchRegisteredUserEmails,
   registerPublicUser
@@ -101,7 +102,17 @@ type AppToast = {
   message: string;
 };
 
+const DEFAULT_SECRETARY_INSTRUCTIONS =
+  "Arayanı kısa ve nazik karşıla. Kimin aradığını, telefon/e-posta bilgisini ve arama nedenini öğren. Acilse açıkça belirtmesini iste. Uygun bir dille mesajı ileteceğini söyle.";
+
 const getContactLibraryKey = (email: string) => `jusur_contact_library_${email.toLowerCase()}`;
+const getCallDefaultsKey = (email: string) => `jusur_call_defaults_${email.toLowerCase()}`;
+
+type StoredCallDefaults = {
+  myLanguage?: string;
+  partnerLanguage?: string;
+  preferredVoice?: "Aoede" | "Fenrir";
+};
 
 const mergeContactLists = (...lists: Contact[][]) => {
   const byEmail = new Map<string, Contact>();
@@ -174,12 +185,11 @@ export default function App() {
   const [secretaryRepresentsName, setSecretaryRepresentsName] = useState("");
   const [secretaryLanguage, setSecretaryLanguage] = useState("Turkish");
   const [secretaryVoice, setSecretaryVoice] = useState<"Kore" | "Puck" | "Aoede" | "Fenrir">("Kore");
-  const [secretaryInstructions, setSecretaryInstructions] = useState(
-    "Arayanı kısa ve nazik karşıla. Kimin aradığını, telefon/e-posta bilgisini ve arama nedenini öğren. Acilse açıkça belirtmesini iste. Uygun bir dille mesajı ileteceğini söyle."
-  );
+  const [secretaryInstructions, setSecretaryInstructions] = useState(DEFAULT_SECRETARY_INSTRUCTIONS);
   const [secretaryProfileStatus, setSecretaryProfileStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [notificationStatus, setNotificationStatus] = useState<"idle" | "enabling" | "enabled" | "error">("idle");
   const [toast, setToast] = useState<AppToast | null>(null);
+  const [callDefaultsLoadedForEmail, setCallDefaultsLoadedForEmail] = useState<string | null>(null);
 
   // Phonebook contacts
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -259,12 +269,6 @@ export default function App() {
     }
   }, [authMode, isNativeApp]);
 
-  useEffect(() => {
-    if (user && !secretaryRepresentsName.trim()) {
-      setSecretaryRepresentsName(user.displayName || user.email?.split("@")[0] || "Jusur user");
-    }
-  }, [secretaryRepresentsName, user]);
-
   const getStoredContactLibrary = () => {
     if (!user?.email || typeof localStorage === "undefined") return [];
     try {
@@ -281,6 +285,78 @@ export default function App() {
     if (!user?.email || typeof localStorage === "undefined") return;
     localStorage.setItem(getContactLibraryKey(user.email), JSON.stringify(library));
   };
+
+  useEffect(() => {
+    if (!user?.email) {
+      setCallDefaultsLoadedForEmail(null);
+      return;
+    }
+
+    if (typeof localStorage === "undefined") {
+      setCallDefaultsLoadedForEmail(user.email);
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(getCallDefaultsKey(user.email));
+      if (raw) {
+        const parsed = JSON.parse(raw) as StoredCallDefaults;
+        if (parsed.myLanguage) setMyLanguage(parsed.myLanguage);
+        if (parsed.partnerLanguage) setPartnerLanguage(parsed.partnerLanguage);
+        if (parsed.preferredVoice === "Aoede" || parsed.preferredVoice === "Fenrir") {
+          setPreferredVoice(parsed.preferredVoice);
+        }
+      }
+    } catch (error) {
+      console.warn("Stored call defaults could not be loaded:", error);
+    } finally {
+      setCallDefaultsLoadedForEmail(user.email);
+    }
+  }, [user?.email]);
+
+  useEffect(() => {
+    if (!user?.email || typeof localStorage === "undefined" || callDefaultsLoadedForEmail !== user.email) return;
+    const defaults: StoredCallDefaults = { myLanguage, partnerLanguage, preferredVoice };
+    localStorage.setItem(getCallDefaultsKey(user.email), JSON.stringify(defaults));
+  }, [callDefaultsLoadedForEmail, myLanguage, partnerLanguage, preferredVoice, user?.email]);
+
+  useEffect(() => {
+    if (!user?.email) {
+      setSecretaryRepresentsName("");
+      setSecretaryLanguage("Turkish");
+      setSecretaryVoice("Kore");
+      setSecretaryInstructions(DEFAULT_SECRETARY_INSTRUCTIONS);
+      setSecretaryProfileStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    setSecretaryProfileStatus("idle");
+    fetchSecretaryProfile(user.email)
+      .then((profile) => {
+        if (cancelled) return;
+        if (profile) {
+          setSecretaryRepresentsName(profile.representsName || user.displayName || user.email?.split("@")[0] || "Jusur user");
+          setSecretaryLanguage(profile.responseLanguage || "Turkish");
+          setSecretaryVoice(profile.voiceName || "Kore");
+          setSecretaryInstructions(profile.instructions || DEFAULT_SECRETARY_INSTRUCTIONS);
+        } else {
+          setSecretaryRepresentsName(user.displayName || user.email?.split("@")[0] || "Jusur user");
+          setSecretaryLanguage("Turkish");
+          setSecretaryVoice("Kore");
+          setSecretaryInstructions(DEFAULT_SECRETARY_INSTRUCTIONS);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("Secretary profile could not be loaded:", error);
+        setSecretaryRepresentsName(user.displayName || user.email?.split("@")[0] || "Jusur user");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email, user?.displayName]);
 
   useEffect(() => {
     if (user && isNativeApp && localStorage.getItem("jusur_media_permissions_checked") !== "1") {
@@ -536,6 +612,7 @@ export default function App() {
         instructions: secretaryInstructions.trim()
       });
       setSecretaryProfileStatus("saved");
+      showToast("AI secretary settings saved.", "success");
     } catch (error) {
       console.error("Secretary profile save failed:", error);
       setSecretaryProfileStatus("error");
