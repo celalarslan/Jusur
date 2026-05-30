@@ -44,6 +44,7 @@ export function ActiveCallScreen({
   const isTurkishUi = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("tr");
   const isCaller = call.callerEmail === currentUserEmail;
   const isLocalDemoCall = call.meetUri === "jusur://local-demo";
+  const isVideoCall = (call.mode || (initialVideoEnabled ? "video" : "audio")) === "video";
   const partnerName = isCaller ? call.receiverEmail.split("@")[0] : call.callerName;
 
   // Translation States
@@ -118,16 +119,18 @@ export function ActiveCallScreen({
             noiseSuppression: true,
             autoGainControl: true
           },
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: "user"
-          }
+          video: isVideoCall
+            ? {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: "user"
+              }
+            : false
         });
         if (!active) return;
         localStreamRef.current = stream;
         stream.getVideoTracks().forEach((track) => {
-          track.enabled = initialVideoEnabled;
+          track.enabled = isVideoCall && initialVideoEnabled;
         });
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -215,7 +218,10 @@ export function ActiveCallScreen({
 
       } catch (err) {
         console.error("WebRTC mic capture or PC setup failed:", err);
-        setMediaError("Camera or microphone access failed. Check browser permissions and reload the call.");
+        setMediaError(isVideoCall
+          ? "Camera or microphone access failed. Check permissions and try again."
+          : "Microphone access failed. Check permission and try again."
+        );
         setConnectionStatus("failed");
       }
     };
@@ -226,7 +232,7 @@ export function ActiveCallScreen({
       active = false;
       cleanupWebRTC();
     };
-  }, [isCaller, isLocalDemoCall, initialVideoEnabled]);
+  }, [isCaller, isLocalDemoCall, initialVideoEnabled, isVideoCall]);
 
   // Helper to handle signals updated from App's Firestore listener
   useEffect(() => {
@@ -317,6 +323,7 @@ export function ActiveCallScreen({
   };
 
   const toggleCamera = () => {
+    if (!isVideoCall) return;
     const nextOff = !cameraOff;
     localStreamRef.current?.getVideoTracks().forEach((track) => {
       track.enabled = !nextOff;
@@ -638,35 +645,39 @@ export function ActiveCallScreen({
     <div className="fixed inset-0 z-[80] bg-black text-neutral-100 font-sans overflow-hidden">
       <audio ref={remoteAudioRef} className="hidden" autoPlay playsInline />
 
-      <video ref={remoteVideoRef} className="absolute inset-0 h-full w-full object-cover bg-slate-950" autoPlay playsInline />
+      {isVideoCall && <video ref={remoteVideoRef} className="absolute inset-0 h-full w-full object-cover bg-slate-950" autoPlay playsInline />}
       {!remoteStreamRef.current && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.16),transparent_42%),linear-gradient(180deg,#020617,#020617)]">
           <div className="h-20 w-20 rounded-full border border-cyan-300/20 bg-cyan-300/10 flex items-center justify-center mb-4">
-            <Video className="w-9 h-9 text-cyan-200" />
+            {isVideoCall ? <Video className="w-9 h-9 text-cyan-200" /> : <Mic className="w-9 h-9 text-cyan-200" />}
           </div>
           <p className="text-lg font-black">{partnerName}</p>
-          <p className="mt-2 text-xs text-slate-500 max-w-xs">Waiting for secure video tunnel. Audio connects as soon as signaling completes.</p>
+          <p className="mt-2 text-xs text-slate-500 max-w-xs">
+            {isVideoCall ? "Waiting for secure video tunnel. Audio connects as soon as signaling completes." : "Connecting secure audio line. This mode uses less data on slow networks."}
+          </p>
         </div>
       )}
 
-      <div
-        className="absolute z-20 w-34 h-48 rounded-[26px] border border-white/15 bg-slate-950 overflow-hidden shadow-[0_18px_60px_rgba(0,0,0,0.5)] touch-none cursor-grab active:cursor-grabbing"
-        style={{ left: pipPosition.x, top: pipPosition.y }}
-        onPointerDown={handlePipPointerDown}
-        onPointerMove={handlePipPointerMove}
-        onPointerUp={handlePipPointerUp}
-        onPointerCancel={handlePipPointerUp}
-      >
-        <video ref={localVideoRef} className="absolute inset-0 h-full w-full object-cover scale-x-[-1]" autoPlay muted playsInline />
-        {cameraOff && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-950/95">
-            <VideoOff className="w-7 h-7 text-amber-200" />
+      {isVideoCall && (
+        <div
+          className="absolute z-20 w-34 h-48 rounded-[26px] border border-white/15 bg-slate-950 overflow-hidden shadow-[0_18px_60px_rgba(0,0,0,0.5)] touch-none cursor-grab active:cursor-grabbing"
+          style={{ left: pipPosition.x, top: pipPosition.y }}
+          onPointerDown={handlePipPointerDown}
+          onPointerMove={handlePipPointerMove}
+          onPointerUp={handlePipPointerUp}
+          onPointerCancel={handlePipPointerUp}
+        >
+          <video ref={localVideoRef} className="absolute inset-0 h-full w-full object-cover scale-x-[-1]" autoPlay muted playsInline />
+          {cameraOff && (
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/95">
+              <VideoOff className="w-7 h-7 text-amber-200" />
+            </div>
+          )}
+          <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[9px] font-black uppercase text-white">
+            You
           </div>
-        )}
-        <div className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[9px] font-black uppercase text-white">
-          You
         </div>
-      </div>
+      )}
 
       <div className="absolute inset-x-0 top-0 z-10 px-4 pt-4 pb-8 bg-gradient-to-b from-black/85 to-transparent pointer-events-none">
         <div className="flex items-start justify-between gap-3">
@@ -694,6 +705,12 @@ export function ActiveCallScreen({
       {mediaError && (
         <div className="absolute left-4 right-4 top-24 z-30 rounded-2xl border border-rose-400/20 bg-rose-500/15 px-3 py-2 text-[11px] font-semibold text-rose-100">
           {mediaError}
+        </div>
+      )}
+
+      {connectionStatus === "failed" && isVideoCall && !mediaError && (
+        <div className="absolute left-4 right-4 top-24 z-30 rounded-2xl border border-amber-300/25 bg-amber-300/15 px-3 py-2 text-[11px] font-semibold text-amber-50">
+          Network is unstable. End this call and try audio mode for a smoother connection.
         </div>
       )}
 
@@ -798,9 +815,11 @@ export function ActiveCallScreen({
           <button onClick={toggleMic} id="btn-toggle-mic" className={`h-14 w-14 rounded-full flex items-center justify-center border ${micMuted ? "bg-rose-500/20 border-rose-300/30 text-rose-200" : "bg-white/12 border-white/15 text-white"}`}>
             {micMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
           </button>
-          <button onClick={toggleCamera} id="btn-toggle-camera" className={`h-14 w-14 rounded-full flex items-center justify-center border ${cameraOff ? "bg-amber-500/20 border-amber-300/30 text-amber-200" : "bg-white/12 border-white/15 text-white"}`}>
-            {cameraOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
-          </button>
+          {isVideoCall && (
+            <button onClick={toggleCamera} id="btn-toggle-camera" className={`h-14 w-14 rounded-full flex items-center justify-center border ${cameraOff ? "bg-amber-500/20 border-amber-300/30 text-amber-200" : "bg-white/12 border-white/15 text-white"}`}>
+              {cameraOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+            </button>
+          )}
           <button
             onClick={() => setActiveTray(activeTray === "translate" ? null : "translate")}
             id="btn-open-translate"

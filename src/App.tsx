@@ -26,11 +26,12 @@ import {
   ChevronLeft,
   Bell,
   ShieldCheck,
-  Download
+  Download,
+  Send
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-import { Contact, CallDocument, CallLogDocument, VoicemailDocument } from "./types";
+import { Contact, CallDocument, CallLogDocument, DirectMessageDocument, VoicemailDocument } from "./types";
 import { 
   googleSignIn, 
   emailPasswordSignIn,
@@ -51,6 +52,9 @@ import {
   saveSecretaryProfile,
   fetchSecretaryProfile,
   fetchCallLogs,
+  fetchDirectMessages,
+  listenDirectMessages,
+  sendDirectMessage,
   fetchRegisteredUserEmails,
   registerPublicUser
 } from "./firebase";
@@ -112,6 +116,14 @@ type StoredCallDefaults = {
   myLanguage?: string;
   partnerLanguage?: string;
   preferredVoice?: "Aoede" | "Fenrir";
+};
+
+const isSlowConnection = () => {
+  if (typeof navigator === "undefined") return false;
+  const connection = (navigator as Navigator & {
+    connection?: { effectiveType?: string; saveData?: boolean };
+  }).connection;
+  return Boolean(connection?.saveData || connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g");
 };
 
 const mergeContactLists = (...lists: Contact[][]) => {
@@ -177,7 +189,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [appLoading, setAppLoading] = useState(true);
   const [manualDialInput, setManualDialInput] = useState("");
-  const [activePanel, setActivePanel] = useState<"home" | "contacts" | "settings">("home");
+  const [activePanel, setActivePanel] = useState<"home" | "contacts" | "messages" | "settings">("home");
   const [callMode, setCallMode] = useState<"audio" | "video">("video");
   const [myLanguage, setMyLanguage] = useState("auto");
   const [partnerLanguage, setPartnerLanguage] = useState("Turkish (Türkçe)");
@@ -201,6 +213,10 @@ export default function App() {
   const [isLoadingVoicemails, setIsLoadingVoicemails] = useState(false);
   const [callLogs, setCallLogs] = useState<CallLogDocument[]>([]);
   const [isLoadingCallLogs, setIsLoadingCallLogs] = useState(false);
+  const [directMessages, setDirectMessages] = useState<DirectMessageDocument[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [selectedMessageContact, setSelectedMessageContact] = useState<Contact | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
   const [registeredEmails, setRegisteredEmails] = useState<Set<string>>(new Set());
   const [permissionStatus, setPermissionStatus] = useState<"idle" | "requesting" | "ready" | "error">("idle");
 
@@ -218,6 +234,7 @@ export default function App() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const singleCallUnsubscribeRef = useRef<(() => void) | null>(null);
   const incomingCallsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const directMessagesUnsubscribeRef = useRef<(() => void) | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const showToast = (message: string, tone: AppToast["tone"] = "info") => {
@@ -382,6 +399,8 @@ export default function App() {
       registerPublicUser(user).catch((error) => console.warn("Public user registration failed:", error));
       loadGoogleContactsAndVoicemails(false);
       loadRegisteredUsersAndCallLogs();
+      loadDirectMessages();
+      setupDirectMessagesListener();
       setupIncomingCallListener();
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         enableIncomingCallNotifications()
@@ -392,11 +411,17 @@ export default function App() {
       // Clear data if logged out
       setContacts([]);
       setCallLogs([]);
+      setDirectMessages([]);
+      setSelectedMessageContact(null);
       setRegisteredEmails(new Set());
       setVoicemails([]);
       if (incomingCallsUnsubscribeRef.current) {
         incomingCallsUnsubscribeRef.current();
         incomingCallsUnsubscribeRef.current = null;
+      }
+      if (directMessagesUnsubscribeRef.current) {
+        directMessagesUnsubscribeRef.current();
+        directMessagesUnsubscribeRef.current = null;
       }
     }
   }, [user, accessToken]);
@@ -454,6 +479,70 @@ export default function App() {
       console.error("Failed loading registered users or call logs:", error);
     } finally {
       setIsLoadingCallLogs(false);
+    }
+  };
+
+  const loadDirectMessages = async () => {
+    if (!user?.email) return;
+    setIsLoadingMessages(true);
+    try {
+      const messages = await fetchDirectMessages(user.email);
+      setDirectMessages(messages);
+    } catch (error) {
+      console.error("Failed loading direct messages:", error);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  };
+
+  const setupDirectMessagesListener = () => {
+    if (!user?.email) return;
+
+    if (directMessagesUnsubscribeRef.current) {
+      directMessagesUnsubscribeRef.current();
+    }
+
+    directMessagesUnsubscribeRef.current = listenDirectMessages(
+      user.email,
+      (messages) => {
+        setDirectMessages(messages);
+        setIsLoadingMessages(false);
+      },
+      (error) => {
+        console.error("Direct messages listener error:", error);
+      }
+    );
+  };
+
+  const openMessagesForContact = (contact: Contact) => {
+    setSelectedMessageContact(contact);
+    setActivePanel("messages");
+  };
+
+  const handleSendDirectMessage = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const text = messageDraft.trim();
+    if (!text || !selectedMessageContact || !user?.email) return;
+
+    const optimisticMessage: DirectMessageDocument = {
+      id: `local-${Date.now()}`,
+      participants: [user.email.toLowerCase(), selectedMessageContact.email.toLowerCase()].sort(),
+      senderEmail: user.email.toLowerCase(),
+      senderName: user.displayName || user.email.split("@")[0],
+      receiverEmail: selectedMessageContact.email.toLowerCase(),
+      text,
+      timestamp: { toMillis: () => Date.now(), toDate: () => new Date() }
+    };
+
+    setMessageDraft("");
+    setDirectMessages((current) => [optimisticMessage, ...current]);
+    try {
+      await sendDirectMessage(selectedMessageContact.email, text);
+    } catch (error) {
+      console.error("Failed sending direct message:", error);
+      setDirectMessages((current) => current.filter((message) => message.id !== optimisticMessage.id));
+      setMessageDraft(text);
+      showToast("Message could not be sent.", "error");
     }
   };
 
@@ -662,12 +751,17 @@ export default function App() {
           callerEmail: user.email,
           receiverEmail: contact.email,
           meetUri: "jusur://local-demo",
+          mode,
           status: "answered",
           timestamp: null
         };
         setOutgoingCall(demoCall);
         setDialState("active_call");
         return;
+      }
+
+      if (mode === "video" && isSlowConnection()) {
+        showToast("Your network looks slow. Audio call may be more stable.", "warning");
       }
 
       let meetingUri = `jusur://internal/${Date.now()}`;
@@ -714,6 +808,7 @@ export default function App() {
         callerEmail: user.email,
         receiverEmail: contact.email,
         meetUri: meetingUri,
+        mode,
         status: "ringing"
       });
 
@@ -736,6 +831,7 @@ export default function App() {
         callerEmail: user.email,
         receiverEmail: contact.email,
         meetUri: meetingUri,
+        mode,
         status: "ringing",
         timestamp: null
       };
@@ -859,7 +955,7 @@ export default function App() {
         callerEmail: incomingCall.callerEmail,
         receiverEmail: incomingCall.receiverEmail,
         receiverName: user?.displayName || user?.email?.split("@")[0] || "Jusur user",
-        mode: callMode,
+        mode: incomingCall.mode || callMode,
         direction: "incoming",
         status: "answered"
       });
@@ -903,7 +999,7 @@ export default function App() {
         callerEmail: incomingCall.callerEmail,
         receiverEmail: incomingCall.receiverEmail,
         receiverName: user?.displayName || user?.email?.split("@")[0] || "Jusur user",
-        mode: callMode,
+        mode: incomingCall.mode || callMode,
         direction: "incoming",
         status: "missed"
       });
@@ -974,6 +1070,24 @@ export default function App() {
   );
   const visibleContacts = activePanel === "home" ? filteredContacts.slice(0, 8) : filteredContacts;
   const visibleCallLogs = activePanel === "home" ? callLogs.slice(0, 4) : [];
+  const selectedThreadMessages = selectedMessageContact
+    ? directMessages
+        .filter((message) => message.participants.includes(selectedMessageContact.email.toLowerCase()))
+        .slice()
+        .reverse()
+    : [];
+  const messageContacts = mergeContactLists(
+    contacts,
+    directMessages.map((message) => {
+      const otherEmail = message.senderEmail === user.email?.toLowerCase() ? message.receiverEmail : message.senderEmail;
+      return {
+        name: otherEmail.split("@")[0],
+        email: otherEmail,
+        resourceName: `message-contact-${otherEmail}`,
+        isRegistered: registeredEmails.has(otherEmail.toLowerCase())
+      };
+    })
+  );
 
   // App loading spinner
   if (appLoading) {
@@ -1172,7 +1286,7 @@ export default function App() {
           </div>
 
           <div className="relative z-10 px-5 pb-3 flex-1 min-h-0 overflow-y-auto">
-            {dialState === "idle" && activePanel !== "settings" && (
+            {dialState === "idle" && activePanel !== "settings" && activePanel !== "messages" && (
               <div className="space-y-4 pb-24">
                 <div className="rounded-[26px] border border-cyan-300/10 bg-black/30 p-4 shadow-inner">
                   <div className="relative">
@@ -1321,6 +1435,14 @@ export default function App() {
                           </div>
                           <button
                             type="button"
+                            onClick={() => openMessagesForContact(callContact)}
+                            className="h-9 w-9 rounded-2xl border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 flex items-center justify-center active:scale-95 transition"
+                            title="Message"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleInitiateCall(callContact, log.mode)}
                             disabled={!callContact.isRegistered}
                             className="h-9 w-9 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition disabled:opacity-35"
@@ -1355,6 +1477,15 @@ export default function App() {
                         </div>
                         <button
                           type="button"
+                          onClick={() => openMessagesForContact(contact)}
+                          disabled={!contact.isRegistered}
+                          className="h-10 w-10 rounded-2xl border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 flex items-center justify-center active:scale-95 transition disabled:opacity-35"
+                          title="Message"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleInitiateCall(contact, "audio")}
                           disabled={!contact.isRegistered}
                           className="h-10 w-10 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition"
@@ -1375,6 +1506,114 @@ export default function App() {
                     ))}
                     </>
                   )}
+                </div>
+              </div>
+            )}
+
+            {activePanel === "messages" && dialState === "idle" && (
+              <div className="space-y-4 pb-24">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-black tracking-tight">Messages</h2>
+                    <p className="text-xs text-slate-500">Text contacts without starting a call.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadDirectMessages}
+                    className="h-9 px-3 rounded-full border border-cyan-300/15 bg-cyan-300/10 text-cyan-100 text-[11px] font-black active:scale-95 transition"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="rounded-[26px] border border-white/10 bg-white/[0.045] overflow-hidden">
+                  <div className="max-h-48 overflow-y-auto p-2 space-y-1 border-b border-white/10">
+                    {isLoadingMessages ? (
+                      <div className="h-24 flex items-center justify-center text-cyan-200">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      </div>
+                    ) : messageContacts.length === 0 ? (
+                      <div className="p-5 text-center text-xs text-slate-500 font-semibold">
+                        Add or sync contacts to start messaging.
+                      </div>
+                    ) : (
+                      messageContacts.map((contact) => {
+                        const lastMessage = directMessages.find((message) => message.participants.includes(contact.email.toLowerCase()));
+                        const active = selectedMessageContact?.email.toLowerCase() === contact.email.toLowerCase();
+                        return (
+                          <button
+                            key={`msg-${contact.resourceName}`}
+                            type="button"
+                            onClick={() => openMessagesForContact(contact)}
+                            className={`w-full rounded-2xl px-3 py-2.5 flex items-center gap-3 text-left transition ${
+                              active ? "bg-cyan-300 text-slate-950" : "bg-slate-950/55 text-white"
+                            }`}
+                          >
+                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black shrink-0 ${active ? "bg-slate-950/10" : "bg-cyan-300/10 text-cyan-100"}`}>
+                              {contact.name[0] || "?"}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-black truncate">{contact.name}</p>
+                              <p className={`text-[10px] truncate ${active ? "text-slate-800" : "text-slate-500"}`}>
+                                {lastMessage?.text || contact.email}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="p-3 min-h-[300px] flex flex-col">
+                    {selectedMessageContact ? (
+                      <>
+                        <div className="mb-3">
+                          <p className="text-sm font-black truncate">{selectedMessageContact.name}</p>
+                          <p className="text-[10px] text-slate-500 truncate">{selectedMessageContact.email}</p>
+                        </div>
+                        <div className="flex-1 max-h-64 overflow-y-auto space-y-2 pr-1">
+                          {selectedThreadMessages.length === 0 ? (
+                            <div className="h-40 flex items-center justify-center text-center text-xs text-slate-500 font-semibold">
+                              No messages yet. Send the first one.
+                            </div>
+                          ) : selectedThreadMessages.map((message) => {
+                            const mine = message.senderEmail === user.email?.toLowerCase();
+                            return (
+                              <div key={message.id} className={`max-w-[84%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${mine ? "ml-auto bg-cyan-300 text-slate-950" : "mr-auto bg-slate-900 text-slate-100 border border-white/10"}`}>
+                                {message.text}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <form onSubmit={handleSendDirectMessage} className="mt-3 flex items-center gap-2">
+                          <input
+                            value={messageDraft}
+                            onChange={(event) => setMessageDraft(event.target.value)}
+                            placeholder="Write a message..."
+                            dir="auto"
+                            inputMode="text"
+                            autoCapitalize="sentences"
+                            enterKeyHint="send"
+                            className="min-w-0 flex-1 h-12 rounded-2xl bg-slate-950 border border-white/10 px-4 text-sm font-semibold outline-none focus:border-cyan-300/40"
+                          />
+                          <button
+                            type="submit"
+                            disabled={!messageDraft.trim()}
+                            className="h-12 w-12 rounded-2xl bg-cyan-300 text-slate-950 flex items-center justify-center disabled:opacity-40"
+                            title="Send"
+                          >
+                            <Send className="w-4 h-4" />
+                          </button>
+                        </form>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+                        <MessageCircle className="w-9 h-9 text-cyan-200/60 mb-3" />
+                        <p className="text-sm font-black">Select a contact</p>
+                        <p className="text-xs text-slate-500 mt-1">Your messages stay available after calls end.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1632,7 +1871,7 @@ export default function App() {
                 initialMyLanguage={myLanguage}
                 initialPartnerLanguage={partnerLanguage}
                 initialVoice={preferredVoice}
-                initialVideoEnabled={callMode === "video"}
+                initialVideoEnabled={(outgoingCall.mode || callMode) === "video"}
               />
             )}
           </div>
@@ -1640,6 +1879,9 @@ export default function App() {
           {dialState === "idle" && (
             <nav className="relative z-10 mx-5 mb-5 h-16 rounded-[26px] border border-white/10 bg-slate-950/85 backdrop-blur-xl flex items-center justify-around shadow-[0_0_34px_rgba(0,0,0,0.38)]">
               <button type="button" onClick={() => setActivePanel("home")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "home" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Home">
+                <History className="w-5 h-5" />
+              </button>
+              <button type="button" onClick={() => setActivePanel("messages")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "messages" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Messages">
                 <MessageCircle className="w-5 h-5" />
               </button>
               <button type="button" onClick={() => setActivePanel("contacts")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "contacts" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Contacts">

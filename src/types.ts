@@ -13,6 +13,7 @@ export interface CallDocument {
   callerEmail: string;
   receiverEmail: string;
   meetUri: string;
+  mode?: "audio" | "video";
   status: "ringing" | "answered" | "missed" | "ai_secretary_active" | "ended";
   timestamp: any; // Firestore serverTimestamp
   callerSignal?: string;
@@ -58,6 +59,16 @@ export interface CallLogDocument {
   status: "ringing" | "answered" | "missed" | "ended" | "secretary";
   timestamp: any;
   endedAt?: any;
+}
+
+export interface DirectMessageDocument {
+  id: string;
+  participants: string[];
+  senderEmail: string;
+  senderName: string;
+  receiverEmail: string;
+  text: string;
+  timestamp: any;
 }
 
 export interface SecretaryProfile {

@@ -169,21 +169,21 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
     const userText = typedMessage.trim();
     setTypedMessage("");
 
-    // Append user text to feed
-    setMessages(prev => [...prev, { role: "user", content: userText, timestamp: Date.now() }]);
-    await processAgentTurn(null, userText);
+    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: userText, timestamp: Date.now() }];
+    setMessages(nextMessages);
+    await processAgentTurn(null, userText, nextMessages);
   };
 
   // Process audio message submit
   const handleAudioSubmit = async (blob: Blob) => {
     if (isProcessing) return;
 
-    // Append audio placeholder content
-    setMessages(prev => [...prev, { role: "user", content: "[Audio Message Recorded]", timestamp: Date.now() }]);
+    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: "[Audio Message Recorded]", timestamp: Date.now() }];
+    setMessages(nextMessages);
     
     try {
       const base64Audio = await blobToBase64(blob);
-      await processAgentTurn(base64Audio, null);
+      await processAgentTurn(base64Audio, null, nextMessages);
     } catch (err) {
       console.error("Audio processing failure:", err);
       setErrorStatus("Audio upload or encoding failed. Let's try typing.");
@@ -191,12 +191,16 @@ export function SecretaryOverlay({ call, onFinish }: SecretaryOverlayProps) {
   };
 
   // Core API communicator
-  const processAgentTurn = async (base64Audio: string | null, textContent: string | null) => {
+  const processAgentTurn = async (
+    base64Audio: string | null,
+    textContent: string | null,
+    historyOverride = messages
+  ) => {
     setIsProcessing(true);
     setErrorStatus(null);
 
     // Clean preceding history
-    const apiHistory = messages.map(m => ({
+    const apiHistory = historyOverride.map(m => ({
       role: m.role,
       content: m.content
     }));

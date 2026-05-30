@@ -28,7 +28,7 @@ import {
   Timestamp
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
-import { CallDocument, CallLogDocument, SecretaryProfile, VoicemailDocument } from "./types";
+import { CallDocument, CallLogDocument, DirectMessageDocument, SecretaryProfile, VoicemailDocument } from "./types";
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -407,6 +407,88 @@ export const fetchCallLogs = async (email: string): Promise<CallLogDocument[]> =
     handleFirestoreError(error, OperationType.GET, pathOfCol);
     return [];
   }
+};
+
+export const sendDirectMessage = async (receiverEmail: string, text: string): Promise<string> => {
+  const currentUser = auth.currentUser;
+  if (!currentUser?.email) {
+    throw new Error("Cannot send messages before signing in.");
+  }
+
+  const senderEmail = currentUser.email.toLowerCase();
+  const normalizedReceiver = receiverEmail.trim().toLowerCase();
+  const participants = [senderEmail, normalizedReceiver].sort();
+  const pathOfCol = "directMessages";
+
+  try {
+    const docRef = await addDoc(collection(db, pathOfCol), {
+      participants,
+      senderEmail,
+      senderName: currentUser.displayName || senderEmail.split("@")[0],
+      receiverEmail: normalizedReceiver,
+      text,
+      timestamp: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, pathOfCol);
+    return "";
+  }
+};
+
+export const fetchDirectMessages = async (email: string): Promise<DirectMessageDocument[]> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const pathOfCol = "directMessages";
+  try {
+    const messagesQ = query(
+      collection(db, "directMessages"),
+      where("participants", "array-contains", normalizedEmail)
+    );
+    const snap = await getDocs(messagesQ);
+    const messages: DirectMessageDocument[] = [];
+    snap.forEach((docSnap) => {
+      messages.push({ id: docSnap.id, ...docSnap.data() } as DirectMessageDocument);
+    });
+    return messages.sort((a, b) => {
+      const aTime = a.timestamp?.toMillis?.() || 0;
+      const bTime = b.timestamp?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, pathOfCol);
+    return [];
+  }
+};
+
+export const listenDirectMessages = (
+  email: string,
+  onUpdate: (messages: DirectMessageDocument[]) => void,
+  onError: (err: any) => void
+) => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const pathOfQuery = "directMessages";
+  const messagesQ = query(
+    collection(db, "directMessages"),
+    where("participants", "array-contains", normalizedEmail)
+  );
+
+  return onSnapshot(messagesQ, (snapshot) => {
+    const messages: DirectMessageDocument[] = [];
+    snapshot.forEach((docSnap) => {
+      messages.push({ id: docSnap.id, ...docSnap.data() } as DirectMessageDocument);
+    });
+    onUpdate(messages.sort((a, b) => {
+      const aTime = a.timestamp?.toMillis?.() || 0;
+      const bTime = b.timestamp?.toMillis?.() || 0;
+      return bTime - aTime;
+    }));
+  }, (error) => {
+    try {
+      handleFirestoreError(error, OperationType.GET, pathOfQuery);
+    } catch (e) {
+      onError(e);
+    }
+  });
 };
 
 // Update an existing Call document
