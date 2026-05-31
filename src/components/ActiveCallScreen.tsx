@@ -129,6 +129,9 @@ export function ActiveCallScreen({
         });
         if (!active) return;
         localStreamRef.current = stream;
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
         stream.getVideoTracks().forEach((track) => {
           track.enabled = isVideoCall && initialVideoEnabled;
         });
@@ -161,6 +164,8 @@ export function ActiveCallScreen({
             }
             if (remoteAudioRef.current) {
               remoteAudioRef.current.srcObject = event.streams[0];
+              remoteAudioRef.current.muted = false;
+              remoteAudioRef.current.volume = 1;
               remoteAudioRef.current.play().catch(console.error);
             }
           }

@@ -116,6 +116,7 @@ const DEFAULT_SECRETARY_INSTRUCTIONS =
 
 const getContactLibraryKey = (email: string) => `jusur_contact_library_${email.toLowerCase()}`;
 const getCallDefaultsKey = (email: string) => `jusur_call_defaults_${email.toLowerCase()}`;
+const getMediaPermissionKey = (email: string) => `jusur_media_permissions_ready_${email.toLowerCase()}`;
 
 type StoredCallDefaults = {
   myLanguage?: string;
@@ -395,10 +396,13 @@ export default function App() {
   }, [user?.email, user?.displayName]);
 
   useEffect(() => {
-    if (user && isNativeApp && localStorage.getItem("jusur_media_permissions_checked") !== "1") {
-      requestCallPermissions();
-    }
-  }, [isNativeApp, user]);
+    if (!user?.email || !isNativeApp) return;
+    checkStoredMediaPermissions().then((ready) => {
+      if (!ready && localStorage.getItem(getMediaPermissionKey(user.email || "")) !== "requested") {
+        requestCallPermissions();
+      }
+    });
+  }, [isNativeApp, user?.email]);
 
   useEffect(() => {
     if (!user?.email || !isNativeApp) return;
@@ -646,16 +650,48 @@ export default function App() {
     }
   };
 
+  const checkStoredMediaPermissions = async () => {
+    if (!user?.email) return false;
+    const mediaKey = getMediaPermissionKey(user.email);
+    if (localStorage.getItem(mediaKey) === "ready") {
+      setPermissionStatus("ready");
+      return true;
+    }
+
+    try {
+      if (!navigator.permissions?.query) return false;
+      const [microphone, camera] = await Promise.all([
+        navigator.permissions.query({ name: "microphone" as PermissionName }),
+        navigator.permissions.query({ name: "camera" as PermissionName })
+      ]);
+
+      if (microphone.state === "granted" && camera.state === "granted") {
+        localStorage.setItem(mediaKey, "ready");
+        setPermissionStatus("ready");
+        return true;
+      }
+      if (microphone.state === "denied" || camera.state === "denied") {
+        setPermissionStatus("error");
+      }
+    } catch (error) {
+      console.warn("Media permission state could not be checked:", error);
+    }
+
+    return false;
+  };
+
   const requestCallPermissions = async () => {
     setPermissionStatus("requesting");
+    const mediaKey = user?.email ? getMediaPermissionKey(user.email) : "jusur_media_permissions_ready";
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
       stream.getTracks().forEach((track) => track.stop());
       setPermissionStatus("ready");
-      localStorage.setItem("jusur_media_permissions_checked", "1");
+      localStorage.setItem(mediaKey, "ready");
     } catch (error) {
       console.error("Media permission request failed:", error);
       setPermissionStatus("error");
+      localStorage.setItem(mediaKey, "requested");
       showToast("Camera/microphone permission is required for calls.", "warning");
     }
   };
@@ -1700,6 +1736,15 @@ export default function App() {
                         title="Audio call"
                       >
                         <Phone className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInitiateCall(selectedMessageContact, "video")}
+                        disabled={!selectedMessageContact.isRegistered}
+                        className="h-10 w-10 rounded-2xl bg-sky-400/80 text-white flex items-center justify-center active:scale-95 transition disabled:opacity-35"
+                        title="Video call"
+                      >
+                        <Video className="w-4 h-4" />
                       </button>
                     </div>
 

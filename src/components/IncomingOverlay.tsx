@@ -10,6 +10,9 @@ interface IncomingOverlayProps {
 }
 
 export function IncomingOverlay({ incomingCall, onAccept, onDecline }: IncomingOverlayProps) {
+  const isVideoCall = (incomingCall.mode || "video") === "video";
+  const AcceptIcon = isVideoCall ? Video : Phone;
+
   useEffect(() => {
     let audioContext: AudioContext | null = null;
     let oscillator: OscillatorNode | null = null;
@@ -50,9 +53,10 @@ export function IncomingOverlay({ incomingCall, onAccept, onDecline }: IncomingO
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md text-white p-6">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-black/92 backdrop-blur-md text-white px-6 py-10">
       
       {/* Outer Ring Animation */}
+      <div className="flex-1 flex flex-col items-center justify-center w-full">
       <div className="relative mb-8">
         <motion.div
           animate={{
@@ -82,7 +86,7 @@ export function IncomingOverlay({ incomingCall, onAccept, onDecline }: IncomingO
         
         {/* Profile Avatar Icon Placeholder */}
         <div className="relative w-32 h-32 rounded-full bg-slate-800 border-2 border-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/10">
-          <Phone className="w-16 h-16 text-emerald-400 animate-pulse" />
+          <AcceptIcon className="w-16 h-16 text-emerald-400 animate-pulse" />
         </div>
       </div>
 
@@ -91,29 +95,30 @@ export function IncomingOverlay({ incomingCall, onAccept, onDecline }: IncomingO
         animate={{ opacity: 1, y: 0 }}
         className="text-emerald-400 text-sm font-mono tracking-widest uppercase mb-2"
       >
-        Incoming smart call
+        {isVideoCall ? "Incoming video call" : "Incoming voice call"}
       </motion.p>
       
       <h2 className="text-3xl font-bold font-sans tracking-tight text-center mb-1">
         {incomingCall.callerName}
       </h2>
       
-      <p className="text-slate-400 text-sm font-mono mb-12">
+      <p className="text-slate-400 text-sm font-mono">
         {incomingCall.callerEmail}
       </p>
+      </div>
 
       {/* Buttons and actions */}
-      <div className="flex items-center gap-12 sm:gap-16">
+      <div className="w-full max-w-xs grid grid-cols-2 gap-5 pb-[env(safe-area-inset-bottom)]">
         {/* Decline Button */}
         <div className="flex flex-col items-center gap-2">
           <button
             onClick={onDecline}
             id="btn-decline-call"
-            className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 flex items-center justify-center transition-all hover:scale-110 shadow-lg shadow-rose-900/40 active:scale-95 cursor-pointer"
+            className="w-20 h-20 rounded-full bg-rose-600 hover:bg-rose-500 flex items-center justify-center transition-all hover:scale-105 shadow-lg shadow-rose-900/40 active:scale-95 cursor-pointer"
           >
-            <PhoneOff className="w-7 h-7 text-white" />
+            <PhoneOff className="w-8 h-8 text-white" />
           </button>
-          <span className="text-xs text-rose-400 font-mono">Decline</span>
+          <span className="text-xs text-rose-300 font-black">Decline</span>
         </div>
 
         {/* Accept Button */}
@@ -121,11 +126,11 @@ export function IncomingOverlay({ incomingCall, onAccept, onDecline }: IncomingO
           <button
             onClick={onAccept}
             id="btn-accept-call"
-            className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 flex items-center justify-center transition-all hover:scale-110 shadow-lg shadow-emerald-500/40 active:scale-95 cursor-pointer animate-bounce"
+            className="w-20 h-20 rounded-full bg-emerald-400 hover:bg-emerald-300 flex items-center justify-center transition-all hover:scale-105 shadow-[0_0_42px_rgba(52,211,153,0.45)] active:scale-95 cursor-pointer animate-pulse"
           >
-            <Video className="w-7 h-7 text-white" />
+            <AcceptIcon className="w-8 h-8 text-slate-950" />
           </button>
-          <span className="text-xs text-emerald-400 font-mono">Accept</span>
+          <span className="text-xs text-emerald-200 font-black">Answer</span>
         </div>
       </div>
     </div>
