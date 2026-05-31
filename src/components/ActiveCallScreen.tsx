@@ -64,6 +64,8 @@ export function ActiveCallScreen({
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "failed" | "loopback_mode">("connecting");
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [peerReady, setPeerReady] = useState(false);
+  const [remoteDescriptionReady, setRemoteDescriptionReady] = useState(false);
 
   // References
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -113,6 +115,7 @@ export function ActiveCallScreen({
             : [{ urls: "stun:stun.l.google.com:19302" }]
         });
         peerConnectionRef.current = pc;
+        setPeerReady(true);
 
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -240,14 +243,16 @@ export function ActiveCallScreen({
 
     return () => {
       active = false;
+      setPeerReady(false);
+      setRemoteDescriptionReady(false);
       cleanupWebRTC();
     };
-  }, [isCaller, isLocalDemoCall, initialVideoEnabled, isVideoCall]);
+  }, [call.id, isCaller, isLocalDemoCall, initialVideoEnabled, isVideoCall]);
 
   // Helper to handle signals updated from App's Firestore listener
   useEffect(() => {
     const pc = peerConnectionRef.current;
-    if (!pc) return;
+    if (!pc || !peerReady) return;
 
     const applySignaling = async () => {
       try {
@@ -255,7 +260,7 @@ export function ActiveCallScreen({
         if (isCaller && call.receiverSignal && pc.signalingState !== "stable") {
           console.log("Caller applying receiver SDP answer...");
           await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(call.receiverSignal)));
-          setConnectionStatus("connected");
+          setRemoteDescriptionReady(true);
         }
         // Receiver offer handling is performed in the dedicated effect below.
       } catch (e) {
@@ -264,16 +269,17 @@ export function ActiveCallScreen({
     };
 
     applySignaling();
-  }, [call.callerSignal, call.receiverSignal, isCaller]);
+  }, [call.callerSignal, call.receiverSignal, isCaller, peerReady]);
 
   // Hook for receiver to apply initial Offer and write Answer
   useEffect(() => {
     const pc = peerConnectionRef.current;
-    if (!isCaller && call.callerSignal && pc && pc.signalingState === "stable") {
+    if (!isCaller && call.callerSignal && pc && peerReady && pc.signalingState === "stable") {
       const applyOfferAndAnswer = async () => {
         try {
           console.log("Receiver applying caller SDP offer...");
           await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(call.callerSignal)));
+          setRemoteDescriptionReady(true);
           
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -285,11 +291,11 @@ export function ActiveCallScreen({
       };
       applyOfferAndAnswer();
     }
-  }, [call.callerSignal, call.id, isCaller]);
+  }, [call.callerSignal, call.id, isCaller, peerReady]);
 
   useEffect(() => {
     const pc = peerConnectionRef.current;
-    if (!pc?.remoteDescription) return;
+    if (!pc?.remoteDescription || !remoteDescriptionReady) return;
 
     const remoteCandidates = isCaller ? call.receiverCandidates : call.callerCandidates;
     if (!remoteCandidates?.length) return;
@@ -305,7 +311,7 @@ export function ActiveCallScreen({
         console.warn("Remote ICE candidate parse failed:", error);
       }
     });
-  }, [call.callerCandidates, call.receiverCandidates, call.callerSignal, call.receiverSignal, isCaller]);
+  }, [call.callerCandidates, call.receiverCandidates, call.callerSignal, call.receiverSignal, isCaller, remoteDescriptionReady]);
 
   // Toggle Live interpreter
   useEffect(() => {
