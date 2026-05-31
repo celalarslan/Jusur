@@ -132,6 +132,13 @@ const isSlowConnection = () => {
   return Boolean(connection?.saveData || connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g");
 };
 
+const nameFromEmail = (email: string) =>
+  email
+    .split("@")[0]
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase()) || email;
+
 const mergeContactLists = (...lists: Contact[][]) => {
   const byEmail = new Map<string, Contact>();
   lists.flat().forEach((contact) => {
@@ -209,6 +216,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [appLoading, setAppLoading] = useState(true);
   const [manualDialInput, setManualDialInput] = useState("");
+  const [manualContactName, setManualContactName] = useState("");
   const [activePanel, setActivePanel] = useState<"home" | "contacts" | "messages" | "settings">("home");
   const [callMode, setCallMode] = useState<"audio" | "video">("video");
   const [myLanguage, setMyLanguage] = useState("auto");
@@ -562,6 +570,12 @@ export default function App() {
   const openMessagesForContact = (contact: Contact) => {
     setSelectedMessageContact(contact);
     setActivePanel("messages");
+  };
+
+  const navigateHome = () => {
+    setSelectedMessageContact(null);
+    setSearchQuery("");
+    setActivePanel("home");
   };
 
   const handleSendDirectMessage = async (event: React.FormEvent) => {
@@ -1167,24 +1181,55 @@ export default function App() {
     handleInitiateCall(manualContact, mode);
   };
 
+  const getQuickCallContact = (): Contact | null => {
+    if (selectedMessageContact?.isRegistered) return selectedMessageContact;
+    const input = manualDialInput.trim().toLowerCase();
+    if (!input || !input.includes("@")) return null;
+    return {
+      name: manualContactName.trim() || nameFromEmail(input),
+      email: input,
+      resourceName: `quick-video-${input}`,
+      isRegistered: registeredEmails.has(input)
+    };
+  };
+
+  const handleQuickVideoCall = () => {
+    const quickContact = getQuickCallContact();
+    if (!quickContact) {
+      showToast("Select a contact or enter a registered email for video call.", "warning");
+      return;
+    }
+    if (!quickContact.isRegistered) {
+      showToast("This email is not registered on Jusur yet.", "warning");
+      return;
+    }
+    handleInitiateCall(quickContact, "video");
+  };
+
   const handleSaveManualContact = () => {
     const email = manualDialInput.trim().toLowerCase();
     if (!email || !email.includes("@")) {
       showToast("Enter an email address to add a contact.", "warning");
       return;
     }
+    const displayName = manualContactName.trim() || nameFromEmail(email);
 
     const nextContact: Contact = {
-      name: email.split("@")[0],
+      name: displayName,
       email,
       resourceName: `manual-contact-${email}`,
       isRegistered: registeredEmails.has(email)
     };
-    const nextStoredLibrary = mergeContactLists(getStoredContactLibrary(), [nextContact]);
+    const storedWithoutEmail = getStoredContactLibrary().filter((contact) => contact.email.toLowerCase() !== email);
+    const nextStoredLibrary = mergeContactLists(storedWithoutEmail, [nextContact]);
     saveStoredContactLibrary(nextStoredLibrary);
-    setContacts((previous) => markRegisteredContacts(mergeContactLists(previous, nextStoredLibrary)));
+    setContacts((previous) => markRegisteredContacts(mergeContactLists(
+      previous.filter((contact) => contact.email.toLowerCase() !== email),
+      nextStoredLibrary
+    )));
     setSearchQuery("");
-    showToast("Contact added to your library.", "success");
+    setManualContactName(displayName);
+    showToast(`${displayName} added to your library.`, "success");
   };
 
   // Filter contacts by search query
@@ -1432,6 +1477,9 @@ export default function App() {
                       onChange={(e) => {
                         setManualDialInput(e.target.value);
                         setSearchQuery(e.target.value);
+                        if (e.target.value.includes("@") && !manualContactName.trim()) {
+                          setManualContactName(nameFromEmail(e.target.value.trim()));
+                        }
                       }}
                       placeholder={t("contactInput")}
                       className="w-full h-14 rounded-2xl border border-white/10 bg-slate-950/80 pl-11 pr-14 text-[15px] font-bold text-white placeholder:text-slate-600 outline-none focus:border-cyan-300/40"
@@ -1447,6 +1495,15 @@ export default function App() {
                       <UserPlus className="w-4 h-4" />
                     </button>
                   </div>
+                  {manualDialInput.includes("@") && (
+                    <input
+                      type="text"
+                      value={manualContactName}
+                      onChange={(event) => setManualContactName(event.target.value)}
+                      placeholder="Contact name"
+                      className="mt-3 w-full h-12 rounded-2xl border border-white/10 bg-slate-950/70 px-4 text-sm font-bold text-white placeholder:text-slate-600 outline-none focus:border-sky-300/35"
+                    />
+                  )}
 
                   {activePanel === "home" && (
                     <div className="grid grid-cols-2 gap-3 mt-4">
@@ -2054,11 +2111,11 @@ export default function App() {
           </div>
 
           {dialState === "idle" && (
-            <nav className="relative z-10 mx-5 mb-5 h-16 rounded-[26px] border border-white/10 bg-slate-950/85 backdrop-blur-xl flex items-center justify-around shadow-[0_0_34px_rgba(0,0,0,0.38)]">
-              <button type="button" onClick={() => setActivePanel("home")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "home" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Home">
+            <nav className="fixed z-50 left-1/2 -translate-x-1/2 bottom-4 w-[calc(100%-40px)] max-w-[390px] h-16 rounded-[26px] border border-white/10 bg-slate-950/90 backdrop-blur-xl flex items-center justify-around shadow-[0_18px_60px_rgba(0,0,0,0.5)] pb-[env(safe-area-inset-bottom)]">
+              <button type="button" onClick={navigateHome} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "home" ? "bg-sky-300 text-slate-950" : "text-slate-500"}`} title="Home">
                 <History className="w-5 h-5" />
               </button>
-              <button type="button" onClick={() => setActivePanel("messages")} className={`relative h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "messages" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Messages">
+              <button type="button" onClick={() => setActivePanel("messages")} className={`relative h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "messages" ? "bg-sky-300 text-slate-950" : "text-slate-500"}`} title="Messages">
                 <MessageCircle className="w-5 h-5" />
                 {totalUnreadMessages > 0 && (
                   <span className="absolute -right-1 -top-1 min-w-5 h-5 px-1 rounded-full bg-emerald-300 text-slate-950 text-[10px] font-black flex items-center justify-center border border-slate-950">
@@ -2066,10 +2123,13 @@ export default function App() {
                   </span>
                 )}
               </button>
-              <button type="button" onClick={() => setActivePanel("contacts")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "contacts" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Contacts">
+              <button type="button" onClick={() => setActivePanel("contacts")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "contacts" ? "bg-sky-300 text-slate-950" : "text-slate-500"}`} title="Contacts">
                 <PhoneCall className="w-5 h-5" />
               </button>
-              <button type="button" onClick={() => setActivePanel("settings")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "settings" ? "bg-cyan-300 text-slate-950" : "text-slate-500"}`} title="Settings">
+              <button type="button" onClick={handleQuickVideoCall} className="h-12 w-12 rounded-2xl flex items-center justify-center bg-sky-400/85 text-white shadow-[0_0_24px_rgba(56,189,248,0.26)] active:scale-95" title="Quick video call">
+                <Video className="w-5 h-5" />
+              </button>
+              <button type="button" onClick={() => setActivePanel("settings")} className={`h-11 w-11 rounded-2xl flex items-center justify-center ${activePanel === "settings" ? "bg-sky-300 text-slate-950" : "text-slate-500"}`} title="Settings">
                 <Settings className="w-5 h-5" />
               </button>
             </nav>
