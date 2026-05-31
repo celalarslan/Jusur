@@ -1233,7 +1233,11 @@ export default function App() {
   };
 
   // Filter contacts by search query
-  const filteredContacts = contacts.filter(
+  const sortedContacts = [...contacts].sort((a, b) => {
+    if (a.isRegistered !== b.isRegistered) return a.isRegistered ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  const filteredContacts = sortedContacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -1475,10 +1479,14 @@ export default function App() {
                       type="text"
                       value={manualDialInput}
                       onChange={(e) => {
-                        setManualDialInput(e.target.value);
-                        setSearchQuery(e.target.value);
-                        if (e.target.value.includes("@") && !manualContactName.trim()) {
-                          setManualContactName(nameFromEmail(e.target.value.trim()));
+                        const nextValue = e.target.value;
+                        const previousSuggestedName = nameFromEmail(manualDialInput.trim());
+                        setManualDialInput(nextValue);
+                        setSearchQuery(nextValue);
+                        if (!nextValue.includes("@")) {
+                          setManualContactName("");
+                        } else if (!manualContactName.trim() || manualContactName === previousSuggestedName) {
+                          setManualContactName(nameFromEmail(nextValue.trim()));
                         }
                       }}
                       placeholder={t("contactInput")}
@@ -1579,7 +1587,9 @@ export default function App() {
                   <div>
                     <h2 className="text-base font-black tracking-tight">{activePanel === "contacts" ? "Contacts" : "Signal List"}</h2>
                     <p className="text-[11px] text-slate-500 font-semibold">
-                      {activePanel === "home" ? `${visibleCallLogs.length} recent · ${filteredContacts.length} contacts` : `${filteredContacts.length} ${t("readyContacts")}`}
+                      {activePanel === "home"
+                        ? `${visibleCallLogs.length} recent · ${filteredContacts.length} contacts`
+                        : `${filteredContacts.filter((contact) => contact.isRegistered).length} registered · ${filteredContacts.length} total`}
                     </p>
                   </div>
                   <button

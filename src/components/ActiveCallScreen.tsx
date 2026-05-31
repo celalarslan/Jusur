@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, PhoneOff, Globe, Video, VideoOff, Loader2, Send, MessageCircle, Activity, Clock3 } from "lucide-react";
 import { CallDocument, CallMessage } from "../types";
-import { updateCallDoc, deleteCallDoc, getCurrentIdToken } from "../firebase";
+import { updateCallDoc, deleteCallDoc, getCurrentIdToken, appendCallIceCandidate } from "../firebase";
 
 interface ActiveCallScreenProps {
   call: CallDocument;
@@ -84,6 +84,7 @@ export function ActiveCallScreen({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef({ active: false, offsetX: 0, offsetY: 0 });
+  const processedIceCandidatesRef = useRef<Set<string>>(new Set());
 
   // Auto-scroll transcripts
   useEffect(() => {
@@ -187,20 +188,33 @@ export function ActiveCallScreen({
           }
         };
 
+        pc.onicecandidate = async (event) => {
+          try {
+            if (event.candidate) {
+              await appendCallIceCandidate(
+                call.id,
+                isCaller ? "caller" : "receiver",
+                JSON.stringify(event.candidate.toJSON())
+              );
+              return;
+            }
+
+            const localDescription = pc.localDescription;
+            if (localDescription) {
+              await updateCallDoc(call.id, {
+                [isCaller ? "callerSignal" : "receiverSignal"]: JSON.stringify(localDescription)
+              });
+            }
+          } catch (error) {
+            console.warn("ICE candidate sync failed:", error);
+          }
+        };
+
         if (isCaller) {
           // CALLER FLOW:
-          pc.onicecandidate = async (e) => {
-            if (e.candidate === null) {
-              const offerDescription = pc.localDescription;
-              if (offerDescription) {
-                console.log("Caller writing SDP offer...");
-                await updateCallDoc(call.id, { callerSignal: JSON.stringify(offerDescription) });
-              }
-            }
-          };
-
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
+          await updateCallDoc(call.id, { callerSignal: JSON.stringify(pc.localDescription) });
 
           setTimeout(() => {
             if (active && pc.signalingState !== "stable" && pc.iceConnectionState !== "connected") {
@@ -210,15 +224,6 @@ export function ActiveCallScreen({
 
         } else {
           console.log("Receiver reading SDP offer...");
-          pc.onicecandidate = async (e) => {
-            if (e.candidate === null) {
-              const answerDescription = pc.localDescription;
-              if (answerDescription) {
-                console.log("Receiver writing SDP answer...");
-                await updateCallDoc(call.id, { receiverSignal: JSON.stringify(answerDescription) });
-              }
-            }
-          };
         }
 
       } catch (err) {
@@ -259,7 +264,7 @@ export function ActiveCallScreen({
     };
 
     applySignaling();
-  }, [call.callerSignal, call.receiverSignal]);
+  }, [call.callerSignal, call.receiverSignal, isCaller]);
 
   // Hook for receiver to apply initial Offer and write Answer
   useEffect(() => {
@@ -272,15 +277,35 @@ export function ActiveCallScreen({
           
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          // Vanilla ICE candidate callback will write receiverSignal to firestore
+          await updateCallDoc(call.id, { receiverSignal: JSON.stringify(pc.localDescription) });
         } catch (err) {
           console.error("Failed to accept offer/create answer:", err);
-          setConnectionStatus("loopback_mode");
+          setConnectionStatus("failed");
         }
       };
       applyOfferAndAnswer();
     }
-  }, [call.callerSignal]);
+  }, [call.callerSignal, call.id, isCaller]);
+
+  useEffect(() => {
+    const pc = peerConnectionRef.current;
+    if (!pc?.remoteDescription) return;
+
+    const remoteCandidates = isCaller ? call.receiverCandidates : call.callerCandidates;
+    if (!remoteCandidates?.length) return;
+
+    remoteCandidates.forEach((candidateJson) => {
+      if (processedIceCandidatesRef.current.has(candidateJson)) return;
+      processedIceCandidatesRef.current.add(candidateJson);
+      try {
+        pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candidateJson))).catch((error) => {
+          console.warn("Remote ICE candidate could not be applied:", error);
+        });
+      } catch (error) {
+        console.warn("Remote ICE candidate parse failed:", error);
+      }
+    });
+  }, [call.callerCandidates, call.receiverCandidates, call.callerSignal, call.receiverSignal, isCaller]);
 
   // Toggle Live interpreter
   useEffect(() => {

@@ -25,7 +25,8 @@ import {
   where,
   orderBy,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  arrayUnion
 } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 import { CallDocument, CallLogDocument, DirectMessageDocument, SecretaryProfile, VoicemailDocument } from "./types";
@@ -513,6 +514,21 @@ export const updateCallDoc = async (callId: string, updates: Partial<Omit<CallDo
   try {
     const docRef = doc(db, "calls", callId);
     await updateDoc(docRef, updates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, pathOfDoc);
+  }
+};
+
+export const appendCallIceCandidate = async (
+  callId: string,
+  role: "caller" | "receiver",
+  candidate: string
+): Promise<void> => {
+  const pathOfDoc = `calls/${callId}`;
+  try {
+    await updateDoc(doc(db, "calls", callId), {
+      [role === "caller" ? "callerCandidates" : "receiverCandidates"]: arrayUnion(candidate)
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, pathOfDoc);
   }

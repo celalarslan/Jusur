@@ -18,6 +18,8 @@ export interface CallDocument {
   timestamp: any; // Firestore serverTimestamp
   callerSignal?: string;
   receiverSignal?: string;
+  callerCandidates?: string[];
+  receiverCandidates?: string[];
   messages?: CallMessage[];
 }
 
