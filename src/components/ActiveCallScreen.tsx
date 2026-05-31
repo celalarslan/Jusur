@@ -49,6 +49,8 @@ export function ActiveCallScreen({
 
   // Translation States
   const [isInterpreterOn, setIsInterpreterOn] = useState(false);
+  const [interpreterStatus, setInterpreterStatus] = useState<"idle" | "connecting" | "listening" | "error">("idle");
+  const [interpreterError, setInterpreterError] = useState<string | null>(null);
   const [myLanguage, setMyLanguage] = useState(initialMyLanguage); // "auto" for Auto-detect
   const [partnerLanguage, setPartnerLanguage] = useState(initialPartnerLanguage);
   const [selectedVoice, setSelectedVoice] = useState(initialVoice);
@@ -165,7 +167,16 @@ export function ActiveCallScreen({
 
             if (remoteVideoRef.current) {
               remoteVideoRef.current.srcObject = event.streams[0];
-              remoteVideoRef.current.play().catch(console.error);
+              remoteVideoRef.current.muted = isVideoCall;
+              remoteVideoRef.current.volume = isVideoCall ? 0 : 1;
+              remoteVideoRef.current.play()
+                .then(() => {
+                  if (!isVideoCall) setAudioPlaybackBlocked(false);
+                })
+                .catch((error) => {
+                  console.warn("Remote media element playback blocked:", error);
+                  if (!isVideoCall) setAudioPlaybackBlocked(true);
+                });
             }
             if (remoteAudioRef.current) {
               remoteAudioRef.current.srcObject = event.streams[0];
@@ -331,6 +342,18 @@ export function ActiveCallScreen({
     };
   }, [isInterpreterOn]);
 
+  useEffect(() => {
+    if (!isInterpreterOn || !audioContextRef.current || remoteSourceRef.current || !remoteStreamRef.current) return;
+    try {
+      remoteSourceRef.current = audioContextRef.current.createMediaStreamSource(remoteStreamRef.current);
+      if (scriptProcessorRef.current) {
+        remoteSourceRef.current.connect(scriptProcessorRef.current);
+      }
+    } catch (error) {
+      console.warn("Remote stream could not be attached to interpreter:", error);
+    }
+  }, [connectionStatus, isInterpreterOn]);
+
   const cleanupWebRTC = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -365,10 +388,19 @@ export function ActiveCallScreen({
   };
 
   const unlockRemoteAudio = () => {
-    if (!remoteAudioRef.current) return;
-    remoteAudioRef.current.muted = false;
-    remoteAudioRef.current.volume = 1;
-    remoteAudioRef.current.play()
+    const playbacks: Promise<unknown>[] = [];
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1;
+      playbacks.push(remoteAudioRef.current.play());
+    }
+    if (remoteVideoRef.current && !isVideoCall) {
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.volume = 1;
+      playbacks.push(remoteVideoRef.current.play());
+    }
+    if (playbacks.length === 0) return;
+    Promise.any(playbacks)
       .then(() => setAudioPlaybackBlocked(false))
       .catch((error) => {
         console.warn("Remote audio unlock failed:", error);
@@ -411,10 +443,15 @@ export function ActiveCallScreen({
   const startInterpreter = async () => {
     try {
       console.log("Starting Real-time Gemini Interpreter...");
+      setInterpreterStatus("connecting");
+      setInterpreterError(null);
       
       // 1. Mute the WebRTC original stream so the user doesn't hear foreign words
       if (remoteAudioRef.current) {
         remoteAudioRef.current.muted = true;
+      }
+      if (remoteVideoRef.current && !isVideoCall) {
+        remoteVideoRef.current.muted = true;
       }
       setPartnerMuted(true);
 
@@ -426,6 +463,9 @@ export function ActiveCallScreen({
       
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+      ws.onopen = () => {
+        setInterpreterStatus("listening");
+      };
 
       // 3. Setup browser AudioContext for mixed recording and playback
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -473,6 +513,11 @@ export function ActiveCallScreen({
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.error) {
+            setInterpreterStatus("error");
+            setInterpreterError(String(msg.error));
+            return;
+          }
           
           // Play Gemini output sound chunk gaplessly
           if (msg.audio) {
@@ -529,10 +574,21 @@ export function ActiveCallScreen({
 
       ws.onclose = () => {
         console.log("WebSocket Gemini translator translator session finished");
+        if (isInterpreterOn) {
+          setInterpreterStatus("error");
+          setInterpreterError("Interpreter connection closed.");
+        }
+      };
+
+      ws.onerror = () => {
+        setInterpreterStatus("error");
+        setInterpreterError("Interpreter connection failed.");
       };
 
     } catch (err) {
       console.error("Error initializing Interpreter setup:", err);
+      setInterpreterStatus("error");
+      setInterpreterError(err instanceof Error ? err.message : "Interpreter could not start.");
     }
   };
 
@@ -541,7 +597,11 @@ export function ActiveCallScreen({
     if (remoteAudioRef.current) {
       remoteAudioRef.current.muted = false;
     }
+    if (remoteVideoRef.current && !isVideoCall) {
+      remoteVideoRef.current.muted = false;
+    }
     setPartnerMuted(false);
+    setInterpreterStatus("idle");
 
     // 2. Shut down media nodes
     if (scriptProcessorRef.current) {
@@ -699,7 +759,14 @@ export function ActiveCallScreen({
     <div className="fixed inset-0 z-[80] bg-black text-neutral-100 font-sans overflow-hidden">
       <audio ref={remoteAudioRef} className="absolute h-px w-px opacity-0 pointer-events-none" autoPlay playsInline controls={false} />
 
-      {isVideoCall && <video ref={remoteVideoRef} className="absolute inset-0 h-full w-full object-cover bg-slate-950" autoPlay playsInline />}
+      <video
+        ref={remoteVideoRef}
+        className={isVideoCall ? "absolute inset-0 h-full w-full object-cover bg-slate-950" : "absolute h-px w-px opacity-0 pointer-events-none"}
+        autoPlay
+        playsInline
+        muted={isVideoCall}
+        controls={false}
+      />
       {!remoteStreamRef.current && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.16),transparent_42%),linear-gradient(180deg,#020617,#020617)]">
           <div className="h-20 w-20 rounded-full border border-cyan-300/20 bg-cyan-300/10 flex items-center justify-center mb-4">
@@ -804,7 +871,15 @@ export function ActiveCallScreen({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-black">Live Interpreter</p>
-                <p className="text-[10px] text-slate-500 truncate">{myLanguage} to {partnerLanguage}</p>
+                <p className="text-[10px] text-slate-500 truncate">
+                  {interpreterStatus === "connecting"
+                    ? "Connecting interpreter..."
+                    : interpreterStatus === "listening"
+                      ? `${myLanguage} to ${partnerLanguage} · listening`
+                      : interpreterStatus === "error"
+                        ? (interpreterError || "Interpreter error")
+                        : `${myLanguage} to ${partnerLanguage}`}
+                </p>
               </div>
               <button
                 onClick={() => setIsInterpreterOn(!isInterpreterOn)}
