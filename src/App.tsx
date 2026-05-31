@@ -960,6 +960,27 @@ export default function App() {
     }
   };
 
+  const startCallFromContact = (contact: Contact | null, mode: "audio" | "video") => {
+    if (!contact?.email) {
+      showToast("Select a registered Jusur contact first.", "warning");
+      return;
+    }
+
+    const normalizedEmail = contact.email.trim().toLowerCase();
+    const isRegistered = contact.isRegistered || registeredEmails.has(normalizedEmail);
+    if (registeredEmails.size > 0 && !isRegistered) {
+      showToast("This email is not registered on Jusur yet.", "warning");
+      return;
+    }
+
+    handleInitiateCall({
+      ...contact,
+      email: normalizedEmail,
+      name: contact.name?.trim() || nameFromEmail(normalizedEmail),
+      isRegistered
+    }, mode);
+  };
+
   const subscribeToOutgoingCall = (callId: string, meetUri: string, targetName: string, callLogId?: string) => {
     if (singleCallUnsubscribeRef.current) {
       singleCallUnsubscribeRef.current();
@@ -1168,28 +1189,31 @@ export default function App() {
     const input = manualDialInput.trim();
     if (!input) return;
     const isEmail = input.includes("@");
-    if (isEmail && registeredEmails.size > 0 && !registeredEmails.has(input.toLowerCase())) {
-      showToast("This email is not registered on Jusur yet.", "warning");
+    if (!isEmail) {
+      showToast("Enter a registered email address to start a Jusur call.", "warning");
       return;
     }
+    const normalizedEmail = input.toLowerCase();
+    const savedContact = contacts.find((contact) => contact.email.toLowerCase() === normalizedEmail);
     const manualContact: Contact = {
-      name: isEmail ? input.split("@")[0] : `Special Dial`,
-      email: isEmail ? input : `${input}@manual-connect.com`,
-      resourceName: `keypad-dial-${Date.now()}`,
-      isRegistered: isEmail ? registeredEmails.has(input.toLowerCase()) : false
+      name: manualContactName.trim() || savedContact?.name || nameFromEmail(normalizedEmail),
+      email: normalizedEmail,
+      resourceName: savedContact?.resourceName || `manual-dial-${normalizedEmail}`,
+      isRegistered: savedContact?.isRegistered || registeredEmails.has(normalizedEmail)
     };
-    handleInitiateCall(manualContact, mode);
+    startCallFromContact(manualContact, mode);
   };
 
   const getQuickCallContact = (): Contact | null => {
-    if (selectedMessageContact?.isRegistered) return selectedMessageContact;
+    if (activePanel === "messages" && selectedMessageContact?.isRegistered) return selectedMessageContact;
     const input = manualDialInput.trim().toLowerCase();
     if (!input || !input.includes("@")) return null;
+    const savedContact = contacts.find((contact) => contact.email.toLowerCase() === input);
     return {
-      name: manualContactName.trim() || nameFromEmail(input),
+      name: manualContactName.trim() || savedContact?.name || nameFromEmail(input),
       email: input,
-      resourceName: `quick-video-${input}`,
-      isRegistered: registeredEmails.has(input)
+      resourceName: savedContact?.resourceName || `quick-video-${input}`,
+      isRegistered: savedContact?.isRegistered || registeredEmails.has(input)
     };
   };
 
@@ -1199,11 +1223,7 @@ export default function App() {
       showToast("Select a contact or enter a registered email for video call.", "warning");
       return;
     }
-    if (!quickContact.isRegistered) {
-      showToast("This email is not registered on Jusur yet.", "warning");
-      return;
-    }
-    handleInitiateCall(quickContact, "video");
+    startCallFromContact(quickContact, "video");
   };
 
   const handleSaveManualContact = () => {
@@ -1645,7 +1665,7 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleInitiateCall(callContact, log.mode)}
+                            onClick={() => startCallFromContact(callContact, "audio")}
                             disabled={!callContact.isRegistered}
                             className="h-9 w-9 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition disabled:opacity-35"
                             title="Call back"
@@ -1688,7 +1708,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleInitiateCall(contact, "audio")}
+                          onClick={() => startCallFromContact(contact, "audio")}
                           disabled={!contact.isRegistered}
                           className="h-10 w-10 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition"
                           title="Audio call"
@@ -1697,7 +1717,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleInitiateCall(contact, "video")}
+                          onClick={() => startCallFromContact(contact, "video")}
                           disabled={!contact.isRegistered}
                           className="h-10 w-10 rounded-2xl bg-blue-400 text-white flex items-center justify-center active:scale-95 transition"
                           title="Video call"
@@ -1797,7 +1817,7 @@ export default function App() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleInitiateCall(selectedMessageContact, "audio")}
+                        onClick={() => startCallFromContact(selectedMessageContact, "audio")}
                         disabled={!selectedMessageContact.isRegistered}
                         className="h-10 w-10 rounded-2xl bg-emerald-300 text-slate-950 flex items-center justify-center active:scale-95 transition disabled:opacity-35"
                         title="Audio call"
@@ -1806,7 +1826,7 @@ export default function App() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleInitiateCall(selectedMessageContact, "video")}
+                        onClick={() => startCallFromContact(selectedMessageContact, "video")}
                         disabled={!selectedMessageContact.isRegistered}
                         className="h-10 w-10 rounded-2xl bg-sky-400/80 text-white flex items-center justify-center active:scale-95 transition disabled:opacity-35"
                         title="Video call"
