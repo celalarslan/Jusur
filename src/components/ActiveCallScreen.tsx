@@ -63,6 +63,7 @@ export function ActiveCallScreen({
   const [partnerMuted, setPartnerMuted] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "failed" | "loopback_mode">("connecting");
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [peerReady, setPeerReady] = useState(false);
   const [remoteDescriptionReady, setRemoteDescriptionReady] = useState(false);
@@ -170,7 +171,12 @@ export function ActiveCallScreen({
               remoteAudioRef.current.srcObject = event.streams[0];
               remoteAudioRef.current.muted = false;
               remoteAudioRef.current.volume = 1;
-              remoteAudioRef.current.play().catch(console.error);
+              remoteAudioRef.current.play()
+                .then(() => setAudioPlaybackBlocked(false))
+                .catch((error) => {
+                  console.warn("Remote audio playback blocked:", error);
+                  setAudioPlaybackBlocked(true);
+                });
             }
           }
         };
@@ -356,6 +362,18 @@ export function ActiveCallScreen({
       track.enabled = !nextMuted;
     });
     setMicMuted(nextMuted);
+  };
+
+  const unlockRemoteAudio = () => {
+    if (!remoteAudioRef.current) return;
+    remoteAudioRef.current.muted = false;
+    remoteAudioRef.current.volume = 1;
+    remoteAudioRef.current.play()
+      .then(() => setAudioPlaybackBlocked(false))
+      .catch((error) => {
+        console.warn("Remote audio unlock failed:", error);
+        setAudioPlaybackBlocked(true);
+      });
   };
 
   const toggleCamera = () => {
@@ -679,7 +697,7 @@ export function ActiveCallScreen({
 
   return (
     <div className="fixed inset-0 z-[80] bg-black text-neutral-100 font-sans overflow-hidden">
-      <audio ref={remoteAudioRef} className="hidden" autoPlay playsInline />
+      <audio ref={remoteAudioRef} className="absolute h-px w-px opacity-0 pointer-events-none" autoPlay playsInline controls={false} />
 
       {isVideoCall && <video ref={remoteVideoRef} className="absolute inset-0 h-full w-full object-cover bg-slate-950" autoPlay playsInline />}
       {!remoteStreamRef.current && (
@@ -742,6 +760,16 @@ export function ActiveCallScreen({
         <div className="absolute left-4 right-4 top-24 z-30 rounded-2xl border border-rose-400/20 bg-rose-500/15 px-3 py-2 text-[11px] font-semibold text-rose-100">
           {mediaError}
         </div>
+      )}
+
+      {audioPlaybackBlocked && (
+        <button
+          type="button"
+          onClick={unlockRemoteAudio}
+          className="absolute left-4 right-4 top-24 z-30 rounded-2xl border border-emerald-300/25 bg-emerald-300/15 px-3 py-3 text-[12px] font-black text-emerald-50 active:scale-[0.99]"
+        >
+          Tap to enable call sound
+        </button>
       )}
 
       {connectionStatus === "failed" && isVideoCall && !mediaError && (
