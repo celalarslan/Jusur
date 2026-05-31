@@ -62,7 +62,6 @@ export function ActiveCallScreen({
   // WebRTC & Audio States
   const [micMuted, setMicMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(!initialVideoEnabled);
-  const [partnerMuted, setPartnerMuted] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "failed" | "loopback_mode">("connecting");
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
@@ -80,8 +79,10 @@ export function ActiveCallScreen({
   const audioContextRef = useRef<AudioContext | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const localSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const remoteSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const captureGainRef = useRef<GainNode | null>(null);
+  const translatedOutputRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const outboundAudioSenderRef = useRef<RTCRtpSender | null>(null);
+  const originalOutboundAudioTrackRef = useRef<MediaStreamTrack | null>(null);
   const nextStartTimeRef = useRef<number>(0);
   
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -342,19 +343,8 @@ export function ActiveCallScreen({
     };
   }, [isInterpreterOn]);
 
-  useEffect(() => {
-    if (!isInterpreterOn || !audioContextRef.current || remoteSourceRef.current || !remoteStreamRef.current) return;
-    try {
-      remoteSourceRef.current = audioContextRef.current.createMediaStreamSource(remoteStreamRef.current);
-      if (scriptProcessorRef.current) {
-        remoteSourceRef.current.connect(scriptProcessorRef.current);
-      }
-    } catch (error) {
-      console.warn("Remote stream could not be attached to interpreter:", error);
-    }
-  }, [connectionStatus, isInterpreterOn]);
-
   const cleanupWebRTC = () => {
+    stopInterpreter();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -376,7 +366,6 @@ export function ActiveCallScreen({
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
-    stopInterpreter();
   };
 
   const toggleMic = () => {
@@ -439,6 +428,46 @@ export function ActiveCallScreen({
     return window.btoa(binary);
   };
 
+  const routeTranslatedAudioToPeer = async (audioCtx: AudioContext) => {
+    const pc = peerConnectionRef.current;
+    if (!pc) {
+      throw new Error("Call connection is not ready for interpreter audio.");
+    }
+
+    const audioSender = pc.getSenders().find((sender) => sender.track?.kind === "audio");
+    if (!audioSender) {
+      throw new Error("No outgoing audio track found for this call.");
+    }
+
+    if (!originalOutboundAudioTrackRef.current) {
+      originalOutboundAudioTrackRef.current = audioSender.track;
+    }
+
+    const translatedOutput = audioCtx.createMediaStreamDestination();
+    translatedOutputRef.current = translatedOutput;
+    const translatedTrack = translatedOutput.stream.getAudioTracks()[0];
+    if (!translatedTrack) {
+      throw new Error("Interpreter audio output track could not be created.");
+    }
+
+    outboundAudioSenderRef.current = audioSender;
+    await audioSender.replaceTrack(translatedTrack);
+  };
+
+  const restoreOriginalOutgoingAudio = () => {
+    const sender = outboundAudioSenderRef.current;
+    const originalTrack = originalOutboundAudioTrackRef.current;
+    if (sender && originalTrack) {
+      sender.replaceTrack(originalTrack).catch((error) => {
+        console.warn("Original microphone track could not be restored:", error);
+      });
+    }
+    translatedOutputRef.current?.stream.getTracks().forEach((track) => track.stop());
+    translatedOutputRef.current = null;
+    outboundAudioSenderRef.current = null;
+    originalOutboundAudioTrackRef.current = null;
+  };
+
   // Connect WebSockets and Audio Nodes to Gemini Live API
   const startInterpreter = async () => {
     try {
@@ -446,16 +475,7 @@ export function ActiveCallScreen({
       setInterpreterStatus("connecting");
       setInterpreterError(null);
       
-      // 1. Mute the WebRTC original stream so the user doesn't hear foreign words
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.muted = true;
-      }
-      if (remoteVideoRef.current && !isVideoCall) {
-        remoteVideoRef.current.muted = true;
-      }
-      setPartnerMuted(true);
-
-      // 2. Establish WebSocket to backend
+      // 1. Establish WebSocket to backend
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
       const idToken = await getCurrentIdToken();
@@ -467,19 +487,16 @@ export function ActiveCallScreen({
         setInterpreterStatus("listening");
       };
 
-      // 3. Setup browser AudioContext for mixed recording and playback
+      // 2. Setup browser AudioContext. Local mic feeds the interpreter;
+      // Gemini's translated audio replaces the outgoing WebRTC mic track.
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       audioContextRef.current = audioCtx;
       nextStartTimeRef.current = audioCtx.currentTime;
+      await routeTranslatedAudioToPeer(audioCtx);
 
       // Local mic source
       if (localStreamRef.current) {
         localSourceRef.current = audioCtx.createMediaStreamSource(localStreamRef.current);
-      }
-
-      // Remote peer WebRTC voice source (mixed into translator)
-      if (remoteStreamRef.current && connectionStatus === "connected") {
-        remoteSourceRef.current = audioCtx.createMediaStreamSource(remoteStreamRef.current);
       }
 
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -490,9 +507,6 @@ export function ActiveCallScreen({
 
       if (localSourceRef.current) {
         localSourceRef.current.connect(processor);
-      }
-      if (remoteSourceRef.current) {
-        remoteSourceRef.current.connect(processor);
       }
 
       processor.connect(captureGain);
@@ -519,7 +533,7 @@ export function ActiveCallScreen({
             return;
           }
           
-          // Play Gemini output sound chunk gaplessly
+          // Route Gemini output sound chunks to the remote peer.
           if (msg.audio) {
             playDecodedAudioChunk(msg.audio, msg.audioMimeType);
           }
@@ -593,14 +607,8 @@ export function ActiveCallScreen({
   };
 
   const stopInterpreter = () => {
-    // 1. Unmute original speech so standard line is audible again
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.muted = false;
-    }
-    if (remoteVideoRef.current && !isVideoCall) {
-      remoteVideoRef.current.muted = false;
-    }
-    setPartnerMuted(false);
+    // 1. Restore original microphone track so standard calls work again.
+    restoreOriginalOutgoingAudio();
     setInterpreterStatus("idle");
 
     // 2. Shut down media nodes
@@ -615,10 +623,6 @@ export function ActiveCallScreen({
     if (localSourceRef.current) {
       localSourceRef.current.disconnect();
       localSourceRef.current = null;
-    }
-    if (remoteSourceRef.current) {
-      remoteSourceRef.current.disconnect();
-      remoteSourceRef.current = null;
     }
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => {});
@@ -659,7 +663,12 @@ export function ActiveCallScreen({
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(ctx.destination);
+      const translatedOutput = translatedOutputRef.current;
+      if (translatedOutput) {
+        source.connect(translatedOutput);
+      } else {
+        source.connect(ctx.destination);
+      }
 
       const currentTime = ctx.currentTime;
       if (nextStartTimeRef.current < currentTime) {

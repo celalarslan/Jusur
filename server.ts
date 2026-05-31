@@ -509,13 +509,14 @@ wss.on("connection", async (clientWs, req) => {
   }
   
   // Set up system prompt
-  const systemInstruction = `You are a real-time interpreter. Listen to the incoming audio. Instantly translate the speaker's words into the target language selected by the user. Output the translation as natural, conversational audio, and provide the exact text transcript.
+  const systemInstruction = `You are a real-time outbound call interpreter. Listen to the signed-in user's microphone audio. Instantly translate only that speaker's words into the conversation partner's target language. Output the translation as natural, conversational audio, and provide the exact text transcript.
 
 Directions:
 - The user's language is "${myLang}".
 - The partner's language is "${partnerLang}".
-- If you hear audio in "${myLang}", instantly translate it to "${partnerLang}".
-- If you hear audio in "${partnerLang}", instantly translate it to "${myLang}".
+- If the user's language is "auto", detect the user's spoken language automatically.
+- Translate the user's speech to "${partnerLang}".
+- Do not translate back to the user's language in this session.
 - Translate as you listen. Be extremely conversational, clear, and direct.
 - Do NOT output any ambient conversations or explanations. Only translate.`;
 
